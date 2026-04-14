@@ -40,7 +40,7 @@ export default function MyBookings() {
   };
 
   const getStatusColor = (status) => {
-    switch(status) {
+    switch (status) {
       case 'pending': return 'warning';
       case 'confirmed': return 'info';
       case 'paid': return 'success';
@@ -50,7 +50,7 @@ export default function MyBookings() {
   };
 
   const getStatusText = (status) => {
-    switch(status) {
+    switch (status) {
       case 'pending': return 'Chờ xử lý';
       case 'confirmed': return 'Đã xác nhận';
       case 'paid': return 'Đã thanh toán';
@@ -120,10 +120,10 @@ export default function MyBookings() {
 
                     {booking.status === 'pending' && (
                       <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button 
-                          variant="outlined" 
-                          color="error" 
-                          fullWidth 
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          fullWidth
                           onClick={() => handleCancel(booking.id)}
                           sx={{ textTransform: 'none', fontWeight: 600 }}
                         >

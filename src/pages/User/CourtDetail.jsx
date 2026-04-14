@@ -12,11 +12,12 @@ export default function CourtDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const user = JSON.parse(localStorage.getItem('user'));
   const { isAuthenticated } = useSelector(state => state.auth);
 
   const [court, setCourt] = useState(null);
   const [loading, setLoading] = useState(true);
-  
+
   // Booking state
   const [openBooking, setOpenBooking] = useState(false);
   const [bookingData, setBookingData] = useState({
@@ -27,6 +28,37 @@ export default function CourtDetail() {
   });
   const [promoResult, setPromoResult] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [selectionStep, setSelectionStep] = useState(0);
+
+  const TIME_SLOTS = Array.from({ length: 37 }, (_, i) => {
+    const hour = Math.floor(i / 2) + 5;
+    const min = i % 2 === 0 ? '00' : '30';
+    return `${hour.toString().padStart(2, '0')}:${min}`;
+  });
+
+  const getNextSlot = (slot) => {
+    const [h, m] = slot.split(':').map(Number);
+    if (m === 0) return `${h.toString().padStart(2, '0')}:30`;
+    return `${(h + 1).toString().padStart(2, '0')}:00`;
+  };
+
+  const handleSlotClick = (slot) => {
+    if (selectionStep === 0) {
+      setBookingData({ ...bookingData, start_time: slot, end_time: getNextSlot(slot) });
+      setSelectionStep(1);
+    } else {
+      if (slot >= bookingData.start_time) {
+        setBookingData({ ...bookingData, end_time: getNextSlot(slot) });
+      } else {
+        setBookingData({ ...bookingData, start_time: slot, end_time: getNextSlot(bookingData.start_time) });
+      }
+      setSelectionStep(0);
+    }
+  };
+
+  const isSlotSelected = (slot) => {
+    return slot >= bookingData.start_time && slot < bookingData.end_time;
+  };
 
   useEffect(() => {
     const fetchCourt = async () => {
@@ -79,19 +111,21 @@ export default function CourtDetail() {
     if (!isAuthenticated) return navigate('/login');
     const hours = calculateHours();
     if (hours <= 0) return dispatch(showNotification({ message: 'Giờ kết thúc phải sau giờ bắt đầu', severity: 'warning' }));
-    
+
     try {
       setBookingLoading(true);
       const total = calculateTotal();
       const payload = {
+        user_id: user.id,
         court_id: court.id,
         booking_date: bookingData.booking_date,
         start_time: bookingData.start_time,
         end_time: bookingData.end_time,
         total_price: total,
+        final_price: promoResult?.valid ? promoResult.final_price : total,
         promotion_code: promoResult?.valid ? bookingData.promotion_code : null
       };
-      
+
       await bookingService.bookCourt(payload);
       dispatch(showNotification({ message: 'Đặt sân thành công!', severity: 'success' }));
       setOpenBooking(false);
@@ -126,14 +160,14 @@ export default function CourtDetail() {
                 image={court.image_url ? 'http://localhost:8000/storage/' + court.image_url : `http://localhost:8000/public/?name=${encodeURIComponent(court.name)}&background=1e1e1e&color=FFD600&font-size=0.3`}
                 alt={court.name}
               />
-              <Chip 
-                label={court.status === 'active' ? 'Đang hoạt động' : 'Bảo trì'} 
-                sx={{ position: 'absolute', top: 16, left: 16, bgcolor: court.status === 'active' ? '#22c55e' : '#f59e0b', color: '#fff', fontWeight: 600 }} 
+              <Chip
+                label={court.status === 'active' ? 'Đang hoạt động' : 'Bảo trì'}
+                sx={{ position: 'absolute', top: 16, left: 16, bgcolor: court.status === 'active' ? '#22c55e' : '#f59e0b', color: '#fff', fontWeight: 600 }}
               />
             </Box>
 
             <Typography variant="h3" sx={{ fontWeight: 800, mb: 2 }}>{court.name}</Typography>
-            
+
             <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <LocationOn sx={{ color: '#FFD600' }} />
@@ -146,7 +180,7 @@ export default function CourtDetail() {
             </Box>
 
             <Divider sx={{ borderColor: '#2a2a2a', my: 3 }} />
-            
+
             <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>Mô tả sân</Typography>
             <Typography sx={{ color: '#9a9a9a', lineHeight: 1.8, whiteSpace: 'pre-line' }}>
               {court.description || 'Sân cầu lông đạt tiêu chuẩn thi đấu quốc tế với thảm trải cao cấp, ánh sáng chống chói và không gian rộng rãi thoáng mát. Phù hợp cho cả việc tập luyện và tổ chức các giải đấu quy mô nhỏ đến vừa.'}
@@ -176,19 +210,19 @@ export default function CourtDetail() {
                   <span style={{ fontSize: '1rem', color: '#9a9a9a', fontWeight: 500 }}> / giờ</span>
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>Bao gồm thuế và phí</Typography>
-                
+
                 <Divider sx={{ borderColor: '#2a2a2a', mb: 3 }} />
-                
-                <Button 
-                  variant="contained" 
-                  fullWidth 
+
+                <Button
+                  variant="contained"
+                  fullWidth
                   size="large"
                   onClick={() => setOpenBooking(true)}
                   sx={{ py: 1.5, fontWeight: 700, fontSize: '1.1rem', bgcolor: '#FFD600', color: '#000', '&:hover': { bgcolor: '#FFC000' } }}
                 >
                   ĐẶT SÂN NGAY
                 </Button>
-                
+
                 <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                   <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#9a9a9a' }}>
                     <CheckCircle sx={{ color: '#FFD600', fontSize: 16 }} /> Xác nhận tức thì
@@ -213,33 +247,47 @@ export default function CourtDetail() {
             <Typography variant="subtitle1" fontWeight={600} mb={1}>{court.name}</Typography>
             <Typography variant="body2" color="text.secondary">{court.branch?.name}</Typography>
           </Box>
-          
+
           <Grid container spacing={2}>
             <Grid item xs={12}>
-              <TextField 
-                fullWidth type="date" name="booking_date" label="Ngày chơi" 
+              <TextField
+                fullWidth type="date" name="booking_date" label="Ngày chơi"
                 value={bookingData.booking_date} onChange={handleChange}
                 InputLabelProps={{ shrink: true }}
               />
             </Grid>
-            <Grid item xs={6}>
-              <TextField 
-                fullWidth type="time" name="start_time" label="Từ giờ" 
-                value={bookingData.start_time} onChange={handleChange}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField 
-                fullWidth type="time" name="end_time" label="Đến giờ" 
-                value={bookingData.end_time} onChange={handleChange}
-                InputLabelProps={{ shrink: true }}
-              />
+            <Grid item xs={12}>
+              <Typography variant="body2" color="text.secondary" mb={1.5} mt={1}>
+                Chọn giờ chơi (Bấm vào 1 ô để chọn giờ bắt đầu, bấm ô tiếp theo để chọn giờ kết thúc)
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 1 }}>
+                {TIME_SLOTS.map(slot => (
+                  <Chip
+                    key={slot}
+                    label={slot}
+                    clickable
+                    onClick={() => handleSlotClick(slot)}
+                    sx={{
+                      width: '100%',
+                      bgcolor: isSlotSelected(slot) ? '#FFD600' : '#1e1e1e',
+                      color: isSlotSelected(slot) ? '#000' : '#fff',
+                      fontWeight: isSlotSelected(slot) ? 700 : 500,
+                      border: isSlotSelected(slot) ? 'none' : '1px solid #333',
+                      '&:hover': { bgcolor: isSlotSelected(slot) ? '#e6c200' : '#333' },
+                      transition: 'all 0.2s'
+                    }}
+                  />
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, bgcolor: 'rgba(255,214,0,0.1)', p: 1.5, borderRadius: 2, border: '1px solid rgba(255,214,0,0.2)' }}>
+                <Typography variant="body2" color="#FFD600">Bắt đầu: <strong>{bookingData.start_time}</strong></Typography>
+                <Typography variant="body2" color="#FFD600">Kết thúc: <strong>{bookingData.end_time}</strong></Typography>
+              </Box>
             </Grid>
             <Grid item xs={12}>
               <Box sx={{ display: 'flex', gap: 1 }}>
-                <TextField 
-                  fullWidth name="promotion_code" label="Mã giảm giá (nếu có)" 
+                <TextField
+                  fullWidth name="promotion_code" label="Mã giảm giá (nếu có)"
                   value={bookingData.promotion_code} onChange={handleChange}
                 />
                 <Button variant="outlined" color="primary" onClick={checkPromoCode} disabled={!bookingData.promotion_code}>
@@ -261,14 +309,14 @@ export default function CourtDetail() {
               <Typography color="text.secondary">Thời gian</Typography>
               <Typography>{calculateHours()} giờ</Typography>
             </Box>
-            
+
             {promoResult?.valid && (
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1, color: '#22c55e' }}>
                 <Typography>Giảm giá</Typography>
                 <Typography>-{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateTotal() - promoResult.total)}</Typography>
               </Box>
             )}
-            
+
             <Divider sx={{ my: 1, borderColor: '#2a2a2a' }} />
             <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
               <Typography fontWeight={700}>Tổng cộng</Typography>

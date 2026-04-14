@@ -14,7 +14,7 @@ export default function Home() {
   // Filters
   const [filters, setFilters] = useState({
     keyword: '',
-    branch_id: '',
+    branch_id: 'all',
     date: new Date().toISOString().split('T')[0],
     start_time: '',
     end_time: ''
@@ -23,8 +23,12 @@ export default function Home() {
   const fetchData = async () => {
     try {
       setLoading(true);
+      const apiFilters = { ...filters };
+      if (apiFilters.branch_id === 'all') {
+        apiFilters.branch_id = '';
+      }
       const [courtsRes, branchesRes] = await Promise.all([
-        courtService.getAll({ ...filters, per_page: 8 }),
+        courtService.getAll({ ...apiFilters, per_page: 8 }),
         branchService.getAll()
       ]);
       setCourts(courtsRes.data.items || courtsRes.data.data || courtsRes.data);
@@ -51,7 +55,7 @@ export default function Home() {
   const handleClearFilters = () => {
     setFilters({
       keyword: '',
-      branch_id: '',
+      branch_id: 'all',
       date: new Date().toISOString().split('T')[0],
       start_time: '',
       end_time: ''
@@ -106,16 +110,16 @@ export default function Home() {
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small"
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={5}>
                 <TextField
                   fullWidth select name="branch_id" label="Chi nhánh" value={filters.branch_id} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small"
                 >
-                  <MenuItem value="">Tất cả chi nhánh</MenuItem>
+                  <MenuItem value="all">Tất cả chi nhánh</MenuItem>
                   {branches.map(b => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
                 </TextField>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth type="date" name="date" label="Ngày chơi" value={filters.date} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small" InputLabelProps={{ shrink: true }}

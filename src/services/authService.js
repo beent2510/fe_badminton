@@ -5,6 +5,7 @@ const authService = {
   register: (data) => axiosInstance.post('/auth/register', data),
   me: () => axiosInstance.get('/auth/me'),
   logout: () => axiosInstance.post('/auth/logout'),
+  updateProfile: (data) => axiosInstance.put('/auth/profile', data),
 };
 
 export default authService;

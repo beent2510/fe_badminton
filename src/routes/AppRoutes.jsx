@@ -10,6 +10,7 @@ import Login from "../pages/Auth/Login";
 import Register from "../pages/Auth/Register";
 import CourtDetail from "../pages/User/CourtDetail";
 import MyBookings from "../pages/User/MyBookings";
+import Profile from "../pages/User/Profile";
 
 // Admin Pages
 import Dashboard from "../pages/Admin/Dashboard";
@@ -25,14 +26,16 @@ const AppRoutes = () => (
     <Route element={<MainLayout />}>
       <Route path="/" element={<Home />} />
       <Route path="/courts" element={<Home />} />
+
       <Route path="/courts/:id" element={<CourtDetail />} />
-      
+
       {/* Protected User Routes */}
       <Route element={<PrivateRoute />}>
         <Route path="/my-bookings" element={<MyBookings />} />
+        <Route path="/profile" element={<Profile />} />
       </Route>
     </Route>
-    
+
     {/* Admin routes */}
     <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
       <Route index element={<Dashboard />} />
