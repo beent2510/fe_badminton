@@ -72,7 +72,7 @@ export default function Profile() {
 
             <form onSubmit={handleSubmit}>
               <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
+                <Grid xs={12} md={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
                     <Person sx={{ color: '#FFD600', mb: 0.5 }} />
                     <TextField 
@@ -88,7 +88,7 @@ export default function Profile() {
                   </Box>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
+                <Grid xs={12} md={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
                     <Email sx={{ color: '#FFD600', mb: 0.5 }} />
                     <TextField 
@@ -105,7 +105,7 @@ export default function Profile() {
                   </Box>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
+                <Grid xs={12} md={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
                     <Phone sx={{ color: '#FFD600', mb: 0.5 }} />
                     <TextField 
@@ -120,7 +120,7 @@ export default function Profile() {
                   </Box>
                 </Grid>
 
-                <Grid item xs={12} md={6}>
+                <Grid xs={12} md={6}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2 }}>
                     <HomeIcon sx={{ color: '#FFD600', mb: 0.5 }} />
                     <TextField 
@@ -135,7 +135,7 @@ export default function Profile() {
                   </Box>
                 </Grid>
 
-                <Grid item xs={12} sx={{ mt: 3 }}>
+                <Grid xs={12} sx={{ mt: 3 }}>
                   <Button 
                     type="submit" 
                     variant="contained" 

@@ -9,6 +9,7 @@ import Home from "../pages/User/Home";
 import Login from "../pages/Auth/Login";
 import Register from "../pages/Auth/Register";
 import CourtDetail from "../pages/User/CourtDetail";
+import BranchDetail from "../pages/User/BranchDetail";
 import MyBookings from "../pages/User/MyBookings";
 import Profile from "../pages/User/Profile";
 
@@ -27,6 +28,7 @@ const AppRoutes = () => (
       <Route path="/" element={<Home />} />
       <Route path="/courts" element={<Home />} />
 
+      <Route path="/branches/:id" element={<BranchDetail />} />
       <Route path="/courts/:id" element={<CourtDetail />} />
 
       {/* Protected User Routes */}

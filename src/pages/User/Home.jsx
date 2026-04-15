@@ -29,7 +29,7 @@ export default function Home() {
       }
       const [courtsRes, branchesRes] = await Promise.all([
         courtService.getAll({ ...apiFilters, per_page: 8 }),
-        branchService.getAll()
+        branchService.getAll({ ...apiFilters, per_page: 8 })
       ]);
       setCourts(courtsRes.data.items || courtsRes.data.data || courtsRes.data);
       setBranches(branchesRes.data.items || branchesRes.data.data || branchesRes.data);
@@ -104,13 +104,13 @@ export default function Home() {
             </Box>
 
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid xs={12} md={4}>
                 <TextField
                   fullWidth name="keyword" placeholder="Tên sân, quận..." value={filters.keyword} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small"
                 />
               </Grid>
-              <Grid item xs={12} md={5}>
+              <Grid xs={12} md={5}>
                 <TextField
                   fullWidth select name="branch_id" label="Chi nhánh" value={filters.branch_id} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small"
@@ -119,25 +119,25 @@ export default function Home() {
                   {branches.map(b => <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>)}
                 </TextField>
               </Grid>
-              <Grid item xs={12} md={3}>
+              <Grid xs={12} md={3}>
                 <TextField
                   fullWidth type="date" name="date" label="Ngày chơi" value={filters.date} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small" InputLabelProps={{ shrink: true }}
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid xs={12} md={4}>
                 <TextField
                   fullWidth type="time" name="start_time" label="Từ giờ" value={filters.start_time} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small" InputLabelProps={{ shrink: true }}
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid xs={12} md={4}>
                 <TextField
                   fullWidth type="time" name="end_time" label="Đến giờ" value={filters.end_time} onChange={handleFilterChange}
                   sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#111' } }} size="small" InputLabelProps={{ shrink: true }}
                 />
               </Grid>
-              <Grid item xs={12} md={4} sx={{ display: 'flex', gap: 1 }}>
+              <Grid xs={12} md={4} sx={{ display: 'flex', gap: 1 }}>
                 <Button fullWidth variant="outlined" color="primary" onClick={handleClearFilters} sx={{ flex: 1 }}>
                   XÓA LỌC
                 </Button>
@@ -150,12 +150,12 @@ export default function Home() {
         </Container>
       </Box>
 
-      {/* Courts List */}
+      {/* Branches List */}
       <Container maxWidth="lg" sx={{ mt: 8 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
           <Box>
-            <Typography variant="h3">Danh sách sân</Typography>
-            <Typography sx={{ color: '#9a9a9a' }}>Khám phá các sân cầu lông nổi bật trên hệ thống</Typography>
+            <Typography variant="h3">Danh sách chi nhánh</Typography>
+            <Typography sx={{ color: '#9a9a9a' }}>Khám phá các chi nhánh cầu lông nổi bật trên hệ thống</Typography>
           </Box>
         </Box>
 
@@ -163,56 +163,50 @@ export default function Home() {
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
             <CircularProgress sx={{ color: '#FFD600' }} />
           </Box>
-        ) : courts.length === 0 ? (
+        ) : branches.length === 0 ? (
           <Box sx={{ textAlign: 'center', py: 10, bgcolor: '#111', borderRadius: 4, border: '1px dashed #2a2a2a' }}>
             <Typography variant="h1" sx={{ fontSize: '4rem', mb: 2 }}>🏸</Typography>
-            <Typography variant="h6" sx={{ color: '#9a9a9a' }}>Không tìm thấy sân phù hợp</Typography>
-            <Button variant="outlined" color="primary" sx={{ mt: 2 }} onClick={handleClearFilters}>Xem tất cả sân</Button>
+            <Typography variant="h6" sx={{ color: '#9a9a9a' }}>Không có chi nhánh nào</Typography>
+            <Button variant="outlined" color="primary" sx={{ mt: 2 }} onClick={handleClearFilters}>Tải lại dữ liệu</Button>
           </Box>
         ) : (
           <Grid container spacing={3}>
-            {courts.map((court) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={court.id}>
+            {branches.map((branch) => (
+              <Grid xs={12} sm={6} md={4} key={branch.id}>
                 <Card sx={{
                   height: '100%', display: 'flex', flexDirection: 'column',
                   transition: 'all 0.3s ease', cursor: 'pointer',
                   '&:hover': { transform: 'translateY(-8px)', borderColor: 'rgba(255,214,0,0.5)', boxShadow: '0 12px 30px rgba(0,0,0,0.4)' }
-                }} onClick={() => navigate(`/courts/${court.id}`)}>
+                }} onClick={() => navigate(`/branches/${branch.id}`)}>
 
                   <Box sx={{ position: 'relative', pt: '60%', bgcolor: '#1e1e1e' }}>
                     <CardMedia
                       component="img"
                       sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                      image={court.image_url ? 'http://localhost:8000/storage/' + court.image_url : `http://localhost:8000/public/?name=${encodeURIComponent(court.name)}&background=1e1e1e&color=FFD600&size=400&font-size=0.3`}
-                      alt={court.name}
+                      image={`http://localhost:8000/public/?name=${encodeURIComponent(branch.name)}&background=1e1e1e&color=FFD600&size=400&font-size=0.3`}
+                      alt={branch.name}
                     />
                     <Box sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', px: 1.5, py: 0.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <Star sx={{ color: '#FFD600', fontSize: 16 }} />
-                      <Typography variant="body2" fontWeight={700} color="#fff">4.8</Typography>
+                      <Typography variant="body2" fontWeight={700} color="#fff">4.9</Typography>
                     </Box>
-                    <Chip
-                      label={court.status === 'active' ? 'Hoạt động' : 'Bảo trì'}
-                      size="small"
-                      sx={{ position: 'absolute', top: 12, left: 12, bgcolor: court.status === 'active' ? 'rgba(34,197,94,0.9)' : 'rgba(245,158,11,0.9)', color: '#fff', fontWeight: 600, fontSize: '0.7rem' }}
-                    />
                   </Box>
 
                   <CardContent sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', p: 2.5 }}>
                     <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {court.name}
+                      {branch.name}
                     </Typography>
 
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 2 }}>
                       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                         <LocationOn sx={{ color: '#FFD600', fontSize: 18, mt: '2px' }} />
                         <Typography variant="body2" sx={{ color: '#9a9a9a', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                          {court.branch?.name || branches.find(b => b.id === court.branch_id)?.name || 'Chi nhánh mặc định'}
+                          {branch.address}
                         </Typography>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <SportsTennis sx={{ color: '#FFD600', fontSize: 18 }} />
                         <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600 }}>
-                          {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(court.price_per_hour)}/h
+                          Liên hệ: {branch.phone_number}
                         </Typography>
                       </Box>
                     </Box>
@@ -224,10 +218,10 @@ export default function Home() {
                       sx={{ mt: 'auto', py: 1, fontWeight: 700 }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/courts/${court.id}`);
+                        navigate(`/branches/${branch.id}`);
                       }}
                     >
-                      ĐẶT SÂN NGAY
+                      XEM CÁC SÂN
                     </Button>
                   </CardContent>
                 </Card>

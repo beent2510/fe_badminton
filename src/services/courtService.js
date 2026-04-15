@@ -2,7 +2,7 @@ import axiosInstance from './axiosConfig';
 
 const courtService = {
   getAll: (params) => axiosInstance.get('/user/courts', { params }),
-  getById: (id) => axiosInstance.get(`/user/courts/${id}`),
+  getById: (id, params) => axiosInstance.get(`/user/courts/${id}`, { params }),
   
   // Admin methods
   adminGetAll: (params) => axiosInstance.get('/admin/courts', { params }),

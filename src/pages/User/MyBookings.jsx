@@ -81,7 +81,7 @@ export default function MyBookings() {
         ) : (
           <Grid container spacing={3}>
             {bookings.map((booking) => (
-              <Grid item xs={12} md={6} key={booking.id}>
+              <Grid xs={12} md={6} key={booking.id}>
                 <Card sx={{ border: '1px solid #2a2a2a', transition: 'all 0.2s', '&:hover': { borderColor: 'rgba(255,214,0,0.3)' } }}>
                   <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
@@ -97,13 +97,13 @@ export default function MyBookings() {
                     <Divider sx={{ borderColor: '#2a2a2a', my: 2 }} />
 
                     <Grid container spacing={2} sx={{ mb: 2 }}>
-                      <Grid item xs={6}>
+                      <Grid xs={6}>
                         <Typography variant="caption" color="text.secondary" display="block">Ngày chơi</Typography>
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 600 }}>
                           <Event fontSize="small" /> {booking.booking_date}
                         </Typography>
                       </Grid>
-                      <Grid item xs={6}>
+                      <Grid xs={6}>
                         <Typography variant="caption" color="text.secondary" display="block">Thời gian</Typography>
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 600 }}>
                           <AccessTime fontSize="small" /> {booking.start_time} - {booking.end_time}
