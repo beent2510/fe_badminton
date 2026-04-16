@@ -1,14 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Container, Typography, Card, CardContent, Grid, Chip, Button, CircularProgress, Divider } from '@mui/material';
-import { Event, AccessTime, LocationOn, SportsTennis } from '@mui/icons-material';
-import { useDispatch } from 'react-redux';
+import { Box, Container, Typography, Card, CardContent, Grid, Chip, Button, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Rating } from '@mui/material';
+import { Event, AccessTime, LocationOn, Star, RateReview } from '@mui/icons-material';
+import { useDispatch, useSelector } from 'react-redux';
 import { showNotification } from '../../store/notificationSlice';
 import bookingService from '../../services/bookingService';
+import reviewService from '../../services/reviewService';
 
 export default function MyBookings() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [reviewDialog, setReviewDialog] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState(null); // { booking }
+  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [reviewedIds, setReviewedIds] = useState({}); // bookingId -> true
   const dispatch = useDispatch();
+  const { user } = useSelector(state => state.auth);
 
   const fetchBookings = async () => {
     try {
@@ -22,11 +29,7 @@ export default function MyBookings() {
     }
   };
 
-  useEffect(() => {
-    fetchBookings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  useEffect(() => { fetchBookings(); }, []);
 
   const handleCancel = async (id) => {
     if (!window.confirm('Bạn có chắc chắn muốn hủy lịch này?')) return;
@@ -39,33 +42,48 @@ export default function MyBookings() {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return 'warning';
-      case 'confirmed': return 'info';
-      case 'paid': return 'success';
-      case 'cancelled': return 'error';
-      default: return 'default';
+  const openReview = (booking) => {
+    setReviewTarget(booking);
+    setReviewForm({ rating: 5, comment: '' });
+    setReviewDialog(true);
+  };
+
+  const submitReview = async () => {
+    if (!reviewTarget) return;
+    setSubmitting(true);
+    try {
+      await reviewService.submitReview({
+        court_id: reviewTarget.court_id,
+        booking_id: reviewTarget.id,
+        rating: reviewForm.rating,
+        comment: reviewForm.comment,
+      });
+      dispatch(showNotification({ message: 'Cảm ơn bạn đã đánh giá sân!', severity: 'success' }));
+      setReviewedIds(prev => ({ ...prev, [reviewTarget.id]: true }));
+      setReviewDialog(false);
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Không thể gửi đánh giá';
+      dispatch(showNotification({ message: msg, severity: 'error' }));
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'pending': return 'Chờ xử lý';
-      case 'confirmed': return 'Đã xác nhận';
-      case 'paid': return 'Đã thanh toán';
-      case 'cancelled': return 'Đã hủy';
-      default: return status;
-    }
+  const canReview = (booking) => (booking.status === 'confirmed' || booking.status === 'paid') && !reviewedIds[booking.id];
+  const isPlayed = (booking) => {
+    const now = new Date();
+    const playDate = new Date(booking.booking_date);
+    return playDate < now || booking.status === 'paid';
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <CircularProgress sx={{ color: '#FFD600' }} />
-      </Box>
-    );
-  }
+  const STATUS_COLOR = { pending: '#f59e0b', confirmed: '#3b82f6', paid: '#22c55e', cancelled: '#ef4444' };
+  const STATUS_TEXT = { pending: 'Chờ xử lý', confirmed: 'Đã xác nhận', paid: 'Đã thanh toán', cancelled: 'Đã hủy' };
+
+  if (loading) return (
+    <Box sx={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <CircularProgress sx={{ color: '#FFD600' }} />
+    </Box>
+  );
 
   return (
     <Box sx={{ pb: 8, pt: 4 }}>
@@ -91,10 +109,14 @@ export default function MyBookings() {
                           <LocationOn fontSize="small" sx={{ color: '#FFD600' }} /> {booking.court?.branch?.name}
                         </Typography>
                       </Box>
-                      <Chip label={getStatusText(booking.status)} color={getStatusColor(booking.status)} size="small" sx={{ fontWeight: 600 }} />
+                      <Chip
+                        label={STATUS_TEXT[booking.status] || booking.status}
+                        size="small"
+                        sx={{ fontWeight: 600, bgcolor: `${STATUS_COLOR[booking.status]}20`, color: STATUS_COLOR[booking.status] }}
+                      />
                     </Box>
 
-                    <Divider sx={{ borderColor: '#2a2a2a', my: 2 }} />
+                    <Divider sx={{ borderColor: '#2a2a2a', my: 1.5 }} />
 
                     <Grid container spacing={2} sx={{ mb: 2 }}>
                       <Grid xs={6}>
@@ -106,7 +128,7 @@ export default function MyBookings() {
                       <Grid xs={6}>
                         <Typography variant="caption" color="text.secondary" display="block">Thời gian</Typography>
                         <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 600 }}>
-                          <AccessTime fontSize="small" /> {booking.start_time} - {booking.end_time}
+                          <AccessTime fontSize="small" /> {booking.start_time?.substring(0, 5)} - {booking.end_time?.substring(0, 5)}
                         </Typography>
                       </Grid>
                     </Grid>
@@ -118,19 +140,30 @@ export default function MyBookings() {
                       </Typography>
                     </Box>
 
-                    {booking.status === 'pending' && (
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button
-                          variant="outlined"
-                          color="error"
-                          fullWidth
-                          onClick={() => handleCancel(booking.id)}
-                          sx={{ textTransform: 'none', fontWeight: 600 }}
-                        >
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      {booking.status === 'pending' && (
+                        <Button variant="outlined" color="error" fullWidth onClick={() => handleCancel(booking.id)} sx={{ textTransform: 'none', fontWeight: 600 }}>
                           Hủy lịch
                         </Button>
-                      </Box>
-                    )}
+                      )}
+                      {canReview(booking) && isPlayed(booking) && (
+                        <Button
+                          variant="outlined"
+                          fullWidth
+                          startIcon={<RateReview />}
+                          onClick={() => openReview(booking)}
+                          sx={{ textTransform: 'none', fontWeight: 600, borderColor: '#FFD600', color: '#FFD600', '&:hover': { borderColor: '#FFC000', bgcolor: 'rgba(255,214,0,0.05)' } }}
+                        >
+                          Đánh giá sân
+                        </Button>
+                      )}
+                      {reviewedIds[booking.id] && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#22c55e', fontSize: '0.85rem', width: '100%', justifyContent: 'center' }}>
+                          <Star fontSize="small" />
+                          Đã đánh giá
+                        </Box>
+                      )}
+                    </Box>
                   </CardContent>
                 </Card>
               </Grid>
@@ -138,6 +171,56 @@ export default function MyBookings() {
           </Grid>
         )}
       </Container>
+
+      {/* Review Dialog */}
+      <Dialog open={reviewDialog} onClose={() => setReviewDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { bgcolor: '#161616', border: '1px solid #2a2a2a' } }}>
+        <DialogTitle sx={{ fontWeight: 700, borderBottom: '1px solid #2a2a2a' }}>
+          Đánh giá sân {reviewTarget?.court?.name}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            Ngày chơi: <strong>{reviewTarget?.booking_date}</strong> | Giờ: <strong>{reviewTarget?.start_time?.substring(0,5)} - {reviewTarget?.end_time?.substring(0,5)}</strong>
+          </Typography>
+
+          <Box sx={{ mb: 3, textAlign: 'center' }}>
+            <Typography variant="body1" fontWeight={600} mb={1}>Chất lượng sân</Typography>
+            <Rating
+              value={reviewForm.rating}
+              onChange={(_, val) => setReviewForm({ ...reviewForm, rating: val })}
+              size="large"
+              sx={{ '& .MuiRating-iconFilled': { color: '#FFD600' }, '& .MuiRating-iconHover': { color: '#FFC000' } }}
+            />
+            <Typography variant="caption" color="text.secondary" display="block" mt={0.5}>
+              {['', 'Tệ', 'Không tốt', 'Bình thường', 'Tốt', 'Xuất sắc'][reviewForm.rating]}
+            </Typography>
+          </Box>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Nhận xét của bạn (không bắt buộc)"
+            value={reviewForm.comment}
+            onChange={e => setReviewForm({ ...reviewForm, comment: e.target.value })}
+            placeholder="Chia sẻ trải nghiệm của bạn về sân cầu lông này..."
+            inputProps={{ maxLength: 1000 }}
+          />
+          <Typography variant="caption" color="text.secondary" mt={0.5} display="block" textAlign="right">
+            {reviewForm.comment.length}/1000
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: '1px solid #2a2a2a' }}>
+          <Button onClick={() => setReviewDialog(false)} color="inherit">Hủy</Button>
+          <Button
+            onClick={submitReview}
+            variant="contained"
+            disabled={submitting || !reviewForm.rating}
+            sx={{ bgcolor: '#FFD600', color: '#000', '&:hover': { bgcolor: '#FFC000' }, px: 3 }}
+          >
+            {submitting ? <CircularProgress size={20} sx={{ color: '#000' }} /> : 'Gửi đánh giá'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

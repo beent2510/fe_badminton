@@ -29,6 +29,11 @@ export default function CourtDetail() {
   const [promoResult, setPromoResult] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [selectionStep, setSelectionStep] = useState(0);
+  const [selectedSlots, setSelectedSlots] = useState([]);
+
+  const today = new Date();
+  const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
 
   const TIME_SLOTS = Array.from({ length: 37 }, (_, i) => {
     const hour = Math.floor(i / 2) + 5;
@@ -53,28 +58,28 @@ export default function CourtDetail() {
 
   const handleSlotClick = (slot) => {
     if (isSlotBooked(slot)) return;
-    if (selectionStep === 0) {
-      setBookingData({ ...bookingData, start_time: slot, end_time: getNextSlot(slot) });
-      setSelectionStep(1);
+    let newSlots = selectedSlots.includes(slot) ? selectedSlots.filter(s => s !== slot) : [...selectedSlots, slot];
+    newSlots.sort();
+    setSelectedSlots(newSlots);
+    if (newSlots.length > 0) {
+      setBookingData({ ...bookingData, start_time: newSlots[0], end_time: getNextSlot(newSlots[newSlots.length - 1]) });
     } else {
-      if (slot >= bookingData.start_time) {
-        setBookingData({ ...bookingData, end_time: getNextSlot(slot) });
-      } else {
-        setBookingData({ ...bookingData, start_time: slot, end_time: getNextSlot(bookingData.start_time) });
-      }
-      setSelectionStep(0);
+      setBookingData({ ...bookingData, start_time: '', end_time: '' });
     }
   };
 
   const isSlotSelected = (slot) => {
-    return slot >= bookingData.start_time && slot < bookingData.end_time;
+    return selectedSlots.includes(slot);
   };
 
   useEffect(() => {
     const fetchCourt = async () => {
       try {
         setLoading(true);
-        const res = await courtService.getById(id, { date: bookingData.booking_date });
+        const res = await courtService.getById(id, { 
+          date: bookingData.booking_date,
+          day_of_week: new Date(bookingData.booking_date).getDay()
+        });
         setCourt(res.data.data || res.data);
       } catch {
         dispatch(showNotification({ message: 'Không thể tải thông tin sân', severity: 'error' }));
@@ -92,7 +97,7 @@ export default function CourtDetail() {
     const { name, value } = e.target;
     if (name === 'booking_date') {
       setBookingData({ ...bookingData, booking_date: value, start_time: '', end_time: '' });
-      setSelectionStep(0);
+      setSelectedSlots([]);
     } else {
       setBookingData({ ...bookingData, [name]: value });
     }
@@ -106,22 +111,59 @@ export default function CourtDetail() {
   };
 
   const calculateTotal = () => {
-    if (!court) return 0;
-    const hours = calculateHours();
-    return court.price_per_hour * hours;
+    if (!court || !bookingData.start_time || !bookingData.end_time) return 0;
+
+    const timeToMin = (t) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const startMin = timeToMin(bookingData.start_time);
+    const endMin = timeToMin(bookingData.end_time);
+    if (endMin <= startMin) return 0;
+
+    let total = 0;
+    let currentMin = startMin;
+
+    while (currentMin < endMin) {
+      let slotPrice = court.price_per_hour;
+
+      if (court.court_peak_hours && court.court_peak_hours.length > 0) {
+        for (let ph of court.court_peak_hours) {
+          const phStart = timeToMin(ph.from_time.substring(0, 5));
+          const phEnd = timeToMin(ph.to_time.substring(0, 5));
+          if (currentMin >= phStart && currentMin < phEnd) {
+            slotPrice = ph.price_peak_hour;
+            break;
+          }
+        }
+      }
+
+      total += slotPrice / 2;
+      currentMin += 30;
+    }
+
+    return total;
   };
 
   const checkPromoCode = async () => {
     if (!bookingData.promotion_code) return;
     try {
       const res = await promotionService.checkCode(bookingData.promotion_code);
-      if (res.data.success) {
+      const data = res.data;
+      if (data.valid || data.success) {
         const total = calculateTotal();
         const applyRes = await promotionService.applyCode(bookingData.promotion_code, total);
-        setPromoResult({ valid: true, ...applyRes.data });
-        dispatch(showNotification({ message: 'Đã áp dụng mã giảm giá', severity: 'success' }));
+        const aData = applyRes.data;
+        if (aData.success) {
+          const discount = total - aData.total;
+          setPromoResult({ valid: true, total: aData.total, discount, final_price: aData.total });
+          dispatch(showNotification({ message: `Giảm ${new Intl.NumberFormat('vi-VN').format(discount)}đ`, severity: 'success' }));
+        } else {
+          setPromoResult({ valid: false, message: aData.message || 'Mã không hợp lệ' });
+        }
       } else {
-        setPromoResult({ valid: false, message: res.data.message });
+        setPromoResult({ valid: false, message: data.message || 'Mã không hợp lệ hoặc đã hết hạn' });
       }
     } catch {
       setPromoResult({ valid: false, message: 'Mã không hợp lệ hoặc đã hết hạn' });
@@ -130,6 +172,9 @@ export default function CourtDetail() {
 
   const handleBooking = async () => {
     if (!isAuthenticated) return navigate('/login');
+    if (bookingData.booking_date < formattedToday) {
+      return dispatch(showNotification({ message: 'Không thể đặt sân trong quá khứ', severity: 'warning' }));
+    }
     const hours = calculateHours();
     if (hours <= 0) return dispatch(showNotification({ message: 'Giờ kết thúc phải sau giờ bắt đầu', severity: 'warning' }));
 
@@ -140,6 +185,7 @@ export default function CourtDetail() {
         user_id: user.id,
         court_id: court.id,
         booking_date: bookingData.booking_date,
+        day_of_week: new Date(bookingData.booking_date).getDay(),
         start_time: bookingData.start_time,
         end_time: bookingData.end_time,
         total_price: total,
@@ -150,6 +196,7 @@ export default function CourtDetail() {
       await bookingService.bookCourt(payload);
       dispatch(showNotification({ message: 'Đặt sân thành công!', severity: 'success' }));
       setOpenBooking(false);
+      setSelectedSlots([]);
       // Optional: navigate to my-bookings
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Có lỗi xảy ra khi đặt sân';
@@ -178,8 +225,11 @@ export default function CourtDetail() {
               <CardMedia
                 component="img"
                 height="400"
-                image={court.image_url ? 'http://localhost:8000/storage/' + court.image_url : `http://localhost:8000/public/?name=${encodeURIComponent(court.name)}&background=1e1e1e&color=FFD600&font-size=0.3`}
+                image={court.image_url 
+                  ? (court.image_url.startsWith('http') ? court.image_url : `http://localhost:8000/storage/${court.image_url}`) 
+                  : `https://placehold.co/800x400/1e1e1e/FFD600?text=${encodeURIComponent(court.name)}`}
                 alt={court.name}
+                onError={(e) => { e.target.src = `https://placehold.co/800x400/1e1e1e/FFD600?text=${encodeURIComponent(court.name)}`; }}
               />
               <Chip
                 label={court.status === 'active' ? 'Đang hoạt động' : 'Bảo trì'}
@@ -228,7 +278,7 @@ export default function CourtDetail() {
               <Card sx={{ p: 3, background: 'linear-gradient(145deg, #161616, #111)', border: '1px solid #2a2a2a', borderRadius: 4 }}>
                 <Typography variant="h5" sx={{ fontWeight: 800, mb: 1, color: '#FFD600' }}>
                   {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(court.price_per_hour)}
-                  <span style={{ fontSize: '1rem', color: '#9a9a9a', fontWeight: 500 }}> / giờ</span>
+                  <span style={{ fontSize: '1rem', color: '#9a9a9a', fontWeight: 500 }}> / giờ (Giá gốc)</span>
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>Bao gồm thuế và phí</Typography>
 
@@ -275,12 +325,13 @@ export default function CourtDetail() {
                 fullWidth type="date" name="booking_date" label="Ngày chơi"
                 value={bookingData.booking_date} onChange={handleChange}
                 InputLabelProps={{ shrink: true }}
+                inputProps={{ min: formattedToday }}
               />
             </Grid>
             <Grid xs={12}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, mt: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  Bảng giờ: Bấm vào 1 ô để chọn giờ bắt đầu, bấm ô tiếp theo để chọn giờ kết thúc
+                  Bảng giờ: Nhấn vào từng ô liền kề để chọn thời gian đặt sân
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
                   <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}><span style={{ display: 'inline-block', width: 12, height: 12, backgroundColor: '#1e1e1e', border: '1px solid #333', borderRadius: 2 }}></span> Trống</Typography>
@@ -336,8 +387,8 @@ export default function CourtDetail() {
 
           <Box sx={{ mt: 3, p: 2, bgcolor: '#111', borderRadius: 2, border: '1px solid #2a2a2a' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography color="text.secondary">Đơn giá</Typography>
-              <Typography>{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(court.price_per_hour)}/h</Typography>
+              <Typography color="text.secondary">Tạm tính (Bao gồm giờ vàng nếu có)</Typography>
+              <Typography>{calculateTotal() ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(calculateTotal()) : '0 đ'}</Typography>
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
               <Typography color="text.secondary">Thời gian</Typography>

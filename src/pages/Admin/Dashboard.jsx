@@ -1,39 +1,43 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Grid, Card, CardContent, Typography, CircularProgress, IconButton } from '@mui/material';
-import { Storefront, SportsTennis, BookOnline, AttachMoney, TrendingUp } from '@mui/icons-material';
+import { Box, Grid, Card, CardContent, Typography, CircularProgress, LinearProgress } from '@mui/material';
+import { Storefront, SportsTennis, BookOnline, AttachMoney, TrendingUp, PeopleAlt, CheckCircle, Cancel } from '@mui/icons-material';
 import bookingService from '../../services/bookingService';
-import courtService from '../../services/courtService';
-import branchService from '../../services/branchService';
+import adminService from '../../services/adminService';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    bookings: 0,
-    courts: 0,
-    branches: 0,
-    revenue: 0
-  });
+  const [stats, setStats] = useState({ bookings: 0, courts: 0, branches: 0, revenue: 0, pending: 0, confirmed: 0, cancelled: 0, promotions: 0 });
+  const [recentBookings, setRecentBookings] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const [bookingsRes, courtsRes, branchesRes] = await Promise.all([
-          bookingService.adminGetAll(),
-          courtService.adminGetAll(),
-          branchService.adminGetAll()
+        const [bookingsRes, courtsRes, branchesRes, promoRes] = await Promise.all([
+          bookingService.adminGetAll({ per_page: 999 }),
+          adminService.getCourts({ per_page: 999 }),
+          adminService.getBranches({ per_page: 999 }),
+          adminService.getPromotions({ per_page: 999 }),
         ]);
-        
-        const bookings = bookingsRes.data.data || [];
-        const revenue = bookings.reduce((sum, b) => sum + Number(b.final_price || 0), 0);
-        
+
+        const bookings = bookingsRes.data.items || bookingsRes.data.data || bookingsRes.data;
+        const revenue = bookings.filter(b => b.status !== 'cancelled').reduce((s, b) => s + Number(b.final_price || b.total_price || 0), 0);
+        const pending = bookings.filter(b => b.status === 'pending').length;
+        const confirmed = bookings.filter(b => b.status === 'confirmed' || b.status === 'paid').length;
+        const cancelled = bookings.filter(b => b.status === 'cancelled').length;
+
         setStats({
-          bookings: bookingsRes.data.total || bookings.length,
-          courts: courtsRes.data.total || courtsRes.data.data?.length || 0,
-          branches: branchesRes.data.total || branchesRes.data.data?.length || 0,
-          revenue: revenue
+          bookings: bookings.length,
+          courts: courtsRes.data.total || (courtsRes.data.items || courtsRes.data.data || courtsRes.data).length,
+          branches: branchesRes.data.total || (branchesRes.data.items || branchesRes.data.data || branchesRes.data).length,
+          revenue,
+          pending,
+          confirmed,
+          cancelled,
+          promotions: (promoRes.data.items || promoRes.data.data || promoRes.data).length,
         });
-      } catch (error) {
-        console.error("Error fetching admin stats:", error);
+        setRecentBookings(bookings.slice(0, 5));
+      } catch (e) {
+        console.error(e);
       } finally {
         setLoading(false);
       }
@@ -42,53 +46,103 @@ export default function Dashboard() {
   }, []);
 
   const statCards = [
-    { title: 'Tống số lượt đặt', value: stats.bookings, icon: <BookOnline sx={{ fontSize: 40 }} />, color: '#3b82f6' },
-    { title: 'Tổng số sân', value: stats.courts, icon: <SportsTennis sx={{ fontSize: 40 }} />, color: '#22c55e' },
-    { title: 'Chi nhánh', value: stats.branches, icon: <Storefront sx={{ fontSize: 40 }} />, color: '#f59e0b' },
-    { 
-      title: 'Doanh thu dự kiến', 
-      value: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.revenue), 
-      icon: <AttachMoney sx={{ fontSize: 40 }} />, 
-      color: '#FFD600' 
-    },
+    { title: 'Tổng lượt đặt sân', value: stats.bookings, icon: <BookOnline sx={{ fontSize: 36 }} />, color: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+    { title: 'Doanh thu (đã đặt)', value: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(stats.revenue), icon: <AttachMoney sx={{ fontSize: 36 }} />, color: '#FFD600', bg: 'rgba(255,214,0,0.1)' },
+    { title: 'Tổng số sân', value: stats.courts, icon: <SportsTennis sx={{ fontSize: 36 }} />, color: '#22c55e', bg: 'rgba(34,197,94,0.1)' },
+    { title: 'Chi nhánh', value: stats.branches, icon: <Storefront sx={{ fontSize: 36 }} />, color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
   ];
 
-  if (loading) {
-    return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress sx={{ color: '#FFD600' }}/></Box>;
-  }
+  const STATUS_COLORS = { pending: '#f59e0b', confirmed: '#3b82f6', paid: '#22c55e', cancelled: '#ef4444' };
+  const STATUS_LABELS = { pending: 'Chờ XN', confirmed: 'Xác nhận', paid: 'Đã TT', cancelled: 'Đã hủy' };
+
+  if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}><CircularProgress sx={{ color: '#FFD600' }} /></Box>;
 
   return (
     <Box>
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>Dashboard Tổng Quan</Typography>
-          <Typography sx={{ color: '#9a9a9a' }}>Theo dõi hiệu suất kinh doanh hệ thống Bee Court</Typography>
-        </Box>
-        <IconButton sx={{ bgcolor: 'rgba(255,214,0,0.1)', color: '#FFD600' }}><TrendingUp /></IconButton>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>Dashboard Tổng Quan</Typography>
+        <Typography sx={{ color: '#9a9a9a' }}>Theo dõi hiệu suất kinh doanh hệ thống Bee Court</Typography>
       </Box>
 
-      <Grid container spacing={3}>
-        {statCards.map((card, idx) => (
-          <Grid item xs={12} sm={6} md={3} key={idx}>
-            <Card sx={{ height: '100%', bgcolor: '#161616', border: '1px solid #2a2a2a', position: 'relative', overflow: 'hidden' }}>
-              <Box sx={{ position: 'absolute', top: -20, right: -20, opacity: 0.1, color: card.color, transform: 'scale(2)' }}>
-                {card.icon}
-              </Box>
-              <CardContent sx={{ position: 'relative', zIndex: 1 }}>
-                <Typography variant="body2" sx={{ color: '#9a9a9a', mb: 1, fontWeight: 600 }}>{card.title}</Typography>
-                <Typography variant="h3" sx={{ fontWeight: 800, color: card.color === '#FFD600' ? '#FFD600' : '#fff' }}>
-                  {card.value}
-                </Typography>
+      {/* Stat cards */}
+      <Grid container spacing={3} mb={4}>
+        {statCards.map((card, i) => (
+          <Grid item xs={12} sm={6} md={3} key={i}>
+            <Card sx={{ bgcolor: '#161616', border: '1px solid #2a2a2a', borderRadius: 3 }}>
+              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: card.bg, color: card.color }}>{card.icon}</Box>
+                <Box>
+                  <Typography variant="body2" sx={{ color: '#9a9a9a', mb: 0.5 }}>{card.title}</Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: '#fff' }}>{card.value}</Typography>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
         ))}
       </Grid>
-      
-      {/* Chart mock area */}
-      <Box sx={{ mt: 4, p: 4, bgcolor: '#161616', border: '1px solid #2a2a2a', borderRadius: 4, minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography sx={{ color: '#666' }}>[ Biểu đồ doanh thu - Để sau ]</Typography>
-      </Box>
+
+      {/* Booking status breakdown */}
+      <Grid container spacing={3} mb={4}>
+        <Grid item xs={12} md={5}>
+          <Card sx={{ bgcolor: '#161616', border: '1px solid #2a2a2a', borderRadius: 3, height: '100%' }}>
+            <CardContent>
+              <Typography variant="h6" fontWeight={700} mb={3}>Tình trạng đặt sân</Typography>
+
+              {[
+                { label: 'Chờ xác nhận', value: stats.pending, color: '#f59e0b' },
+                { label: 'Đã xác nhận / Đã thanh toán', value: stats.confirmed, color: '#22c55e' },
+                { label: 'Đã hủy', value: stats.cancelled, color: '#ef4444' },
+              ].map(item => (
+                <Box key={item.label} mb={2}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">{item.label}</Typography>
+                    <Typography variant="body2" fontWeight={700} color={item.color}>{item.value}</Typography>
+                  </Box>
+                  <LinearProgress
+                    variant="determinate"
+                    value={stats.bookings ? (item.value / stats.bookings) * 100 : 0}
+                    sx={{ height: 8, borderRadius: 4, bgcolor: '#2a2a2a', '& .MuiLinearProgress-bar': { bgcolor: item.color, borderRadius: 4 } }}
+                  />
+                </Box>
+              ))}
+
+              <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(255,214,0,0.05)', borderRadius: 2, border: '1px solid rgba(255,214,0,0.1)' }}>
+                <Typography variant="body2" color="text.secondary">Mã khuyến mãi đang có</Typography>
+                <Typography variant="h5" fontWeight={800} color="#FFD600">{stats.promotions}</Typography>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Recent bookings */}
+        <Grid item xs={12} md={7}>
+          <Card sx={{ bgcolor: '#161616', border: '1px solid #2a2a2a', borderRadius: 3 }}>
+            <CardContent>
+              <Typography variant="h6" fontWeight={700} mb={2}>Đặt sân mới nhất</Typography>
+              {recentBookings.length === 0 ? (
+                <Typography color="text.secondary" textAlign="center" py={4}>Chưa có đặt sân nào</Typography>
+              ) : (
+                recentBookings.map(b => (
+                  <Box key={b.id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1.5, borderBottom: '1px solid #1e1e1e' }}>
+                    <Box>
+                      <Typography fontWeight={600} fontSize="0.9rem">{b.court?.name || `Sân #${b.court_id}`}</Typography>
+                      <Typography variant="caption" color="text.secondary">{b.booking_date} • {b.start_time?.substring(0,5)}-{b.end_time?.substring(0,5)}</Typography>
+                    </Box>
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Box sx={{ display: 'inline-block', px: 1, py: 0.3, borderRadius: 1, bgcolor: `${STATUS_COLORS[b.status]}20`, color: STATUS_COLORS[b.status], fontSize: '0.75rem', fontWeight: 700, mb: 0.5 }}>
+                        {STATUS_LABELS[b.status] || b.status}
+                      </Box>
+                      <Typography variant="body2" color="#FFD600" fontWeight={700}>
+                        {new Intl.NumberFormat('vi-VN').format(b.final_price || b.total_price || 0)}đ
+                      </Typography>
+                    </Box>
+                  </Box>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
     </Box>
   );
 }
