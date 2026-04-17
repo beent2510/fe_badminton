@@ -27,7 +27,7 @@ import {
   TablePagination,
 } from "@mui/material";
 import { Add, Edit, Delete } from "@mui/icons-material";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { showNotification } from "../../store/notificationSlice";
 import adminService from "../../services/adminService";
 
@@ -42,9 +42,13 @@ const DAY_LABELS = [
 ];
 
 export default function AdminSchedules() {
-  const [schedules, setSchedules] = useState([]);
-  const [courts, setCourts] = useState([]);
+  const { user } = useSelector(/** @param {any} state */ (state) => state.auth);
+  const isSystemAdmin = user?.role === "admin";
+  const [schedules, setSchedules] = useState(/** @type {any[]} */ ([]));
+  const [courts, setCourts] = useState(/** @type {any[]} */ ([]));
+  const [branches, setBranches] = useState(/** @type {any[]} */ ([]));
   const [openDialog, setOpenDialog] = useState(false);
+  const [filterBranchId, setFilterBranchId] = useState("all");
   const [filterCourtId, setFilterCourtId] = useState("all");
   const [filterDayOfWeek, setFilterDayOfWeek] = useState("all");
   const [page, setPage] = useState(0);
@@ -67,8 +71,11 @@ export default function AdminSchedules() {
         page: page + 1,
         items_per_page: rowsPerPage,
       };
-      /** @type {Record<string, string | number>} */
-      const requestParams = { ...params };
+      const requestParams = /** @type {Record<string, string | number>} */ ({
+        ...params,
+      });
+      if (isSystemAdmin && filterBranchId !== "all")
+        requestParams.branch_id = filterBranchId;
       if (filterCourtId !== "all") requestParams.court_id = filterCourtId;
       if (filterDayOfWeek !== "all")
         requestParams.day_of_week = filterDayOfWeek;
@@ -91,9 +98,33 @@ export default function AdminSchedules() {
     }
   };
 
+  const fetchBranches = async () => {
+    if (!isSystemAdmin) return;
+    try {
+      const branchesRes = await adminService.getBranches();
+      setBranches(
+        branchesRes.data.items ||
+          branchesRes.data.data ||
+          branchesRes.data ||
+          [],
+      );
+    } catch {
+      dispatch(
+        showNotification({
+          message: "Lỗi tải dữ liệu chi nhánh",
+          severity: "error",
+        }),
+      );
+    }
+  };
+
   const fetchCourts = async () => {
     try {
-      const courtsRes = await adminService.getCourts();
+      const courtParams =
+        isSystemAdmin && filterBranchId !== "all"
+          ? { branch_id: filterBranchId }
+          : undefined;
+      const courtsRes = await adminService.getCourts(courtParams);
       setCourts(courtsRes.data.items || courtsRes.data.data || courtsRes.data);
     } catch {
       dispatch(
@@ -103,12 +134,28 @@ export default function AdminSchedules() {
   };
 
   useEffect(() => {
+    fetchBranches();
+  }, [isSystemAdmin]);
+
+  useEffect(() => {
     fetchCourts();
-  }, []);
+  }, [isSystemAdmin, filterBranchId]);
 
   useEffect(() => {
     fetchSchedules();
-  }, [page, rowsPerPage, filterCourtId, filterDayOfWeek]);
+  }, [
+    page,
+    rowsPerPage,
+    filterBranchId,
+    filterCourtId,
+    filterDayOfWeek,
+    isSystemAdmin,
+  ]);
+
+  const filteredCourts =
+    isSystemAdmin && filterBranchId !== "all"
+      ? courts.filter((c) => String(c.branch_id) === String(filterBranchId))
+      : courts;
 
   const handleOpenAdd = () => {
     setFormData({
@@ -123,12 +170,12 @@ export default function AdminSchedules() {
     setOpenDialog(true);
   };
 
-  const handleOpenEdit = (item) => {
+  const handleOpenEdit = (/** @type {any} */ item) => {
     setFormData({ ...item, day_of_week: [Number(item.day_of_week)] });
     setOpenDialog(true);
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (/** @type {number | string} */ id) => {
     if (!window.confirm("Xóa lịch này?")) return;
     try {
       await adminService.deleteSchedule(id);
@@ -230,10 +277,33 @@ export default function AdminSchedules() {
       <Box
         sx={{
           display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+          gridTemplateColumns: {
+            xs: "1fr",
+            md: isSystemAdmin ? "1fr 1fr 1fr" : "1fr 1fr",
+          },
           gap: 2,
           mb: 2,
         }}>
+        {isSystemAdmin && (
+          <TextField
+            select
+            label="Lọc theo chi nhánh"
+            value={filterBranchId}
+            onChange={(e) => {
+              setFilterBranchId(e.target.value);
+              setFilterCourtId("all");
+              setPage(0);
+            }}
+            fullWidth>
+            <MenuItem value="all">Tất cả chi nhánh</MenuItem>
+            {branches.map((b) => (
+              <MenuItem key={b.id} value={String(b.id)}>
+                {b.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+
         <TextField
           select
           label="Lọc theo sân"
@@ -244,7 +314,7 @@ export default function AdminSchedules() {
           }}
           fullWidth>
           <MenuItem value="all">Tất cả sân</MenuItem>
-          {courts.map((c) => (
+          {filteredCourts.map((c) => (
             <MenuItem key={c.id} value={String(c.id)}>
               {c.name}
             </MenuItem>
