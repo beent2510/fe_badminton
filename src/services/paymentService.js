@@ -3,6 +3,7 @@ import api from './axiosConfig';
 const paymentService = {
   // User
   create: (data) => api.post('/user/payments', data),
+  createZalopayPayment: (data) => api.post('/user/payments/zalopay/create', data),
   getAll: (params) => api.get('/user/payments', { params }),
   getById: (id) => api.get(`/user/payments/${id}`),
   // Admin

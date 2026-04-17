@@ -12,6 +12,7 @@ import CourtDetail from "../pages/User/CourtDetail";
 import BranchDetail from "../pages/User/BranchDetail";
 import MyBookings from "../pages/User/MyBookings";
 import Profile from "../pages/User/Profile";
+import ZaloReturn from "../pages/User/ZaloReturn";
 
 // Admin Pages
 import Dashboard from "../pages/Admin/Dashboard";
@@ -36,6 +37,7 @@ const AppRoutes = () => (
 
       <Route path="/branches/:id" element={<BranchDetail />} />
       <Route path="/courts/:id" element={<CourtDetail />} />
+      <Route path="/zalo_return" element={<ZaloReturn />} />
 
       {/* Protected User Routes */}
       <Route element={<PrivateRoute />}>
@@ -45,7 +47,13 @@ const AppRoutes = () => (
     </Route>
 
     {/* Admin routes */}
-    <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
+    <Route
+      path="/admin"
+      element={
+        <AdminRoute>
+          <AdminLayout />
+        </AdminRoute>
+      }>
       <Route index element={<Dashboard />} />
       <Route path="branches" element={<AdminBranches />} />
       <Route path="courts" element={<AdminCourts />} />
