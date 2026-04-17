@@ -21,6 +21,7 @@ import AdminSchedules from "../pages/Admin/Schedules";
 import AdminPeakHours from "../pages/Admin/PeakHours";
 import AdminBookings from "../pages/Admin/Bookings";
 import AdminPromotions from "../pages/Admin/Promotions";
+import AdminManagers from "../pages/Admin/Managers";
 
 const AppRoutes = () => (
   <Routes>
@@ -52,6 +53,7 @@ const AppRoutes = () => (
       <Route path="peak-hours" element={<AdminPeakHours />} />
       <Route path="bookings" element={<AdminBookings />} />
       <Route path="promotions" element={<AdminPromotions />} />
+      <Route path="managers" element={<AdminManagers />} />
       <Route path="*" element={<Dashboard />} />
     </Route>
   </Routes>

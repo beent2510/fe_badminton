@@ -36,34 +36,82 @@ export default function BranchDetail() {
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
+  const getCourtTimeSlots = (courtInstance) => {
+    if (courtInstance?.schedules && courtInstance.schedules.length > 0) {
+      let slots = [];
+      courtInstance.schedules.forEach(schedule => {
+        const startStr = schedule.start_time.substring(0, 5);
+        const endStr = schedule.end_time.substring(0, 5);
+        const duration = parseInt(schedule.slot_duration) || 30;
 
-  const TIME_SLOTS = Array.from({ length: 37 }, (_, i) => {
-    const hour = Math.floor(i / 2) + 5;
-    const min = i % 2 === 0 ? '00' : '30';
-    return `${hour.toString().padStart(2, '0')}:${min}`;
-  });
+        const [startH, startM] = startStr.split(':').map(Number);
+        const [endH, endM] = endStr.split(':').map(Number);
+        
+        let currentMin = startH * 60 + startM;
+        const endDayMin = endH * 60 + endM;
 
-  const getNextSlot = (slot) => {
+        while (currentMin < endDayMin) {
+          const h = Math.floor(currentMin / 60).toString().padStart(2, '0');
+          const m = (currentMin % 60).toString().padStart(2, '0');
+          slots.push(`${h}:${m}`);
+          currentMin += duration;
+        }
+      });
+      return [...new Set(slots)].sort();
+    }
+    return Array.from({ length: 37 }, (_, i) => {
+      const hour = Math.floor(i / 2) + 5;
+      const min = i % 2 === 0 ? '00' : '30';
+      return `${hour.toString().padStart(2, '0')}:${min}`;
+    });
+  };
+
+  const getNextSlot = (courtInstance, slot) => {
+    const slots = getCourtTimeSlots(courtInstance);
+    const index = slots.indexOf(slot);
+    if (index !== -1 && index + 1 < slots.length) {
+      return slots[index + 1];
+    }
+    const defaultDuration = courtInstance?.schedules?.[0]?.slot_duration || 30;
     const [h, m] = slot.split(':').map(Number);
-    if (m === 0) return `${h.toString().padStart(2, '0')}:30`;
-    return `${(h + 1).toString().padStart(2, '0')}:00`;
+    let totalMins = h * 60 + m + parseInt(defaultDuration);
+    return `${Math.floor(totalMins / 60).toString().padStart(2, '0')}:${(totalMins % 60).toString().padStart(2, '0')}`;
+  };
+
+  const groupSlotsIntoSegments = (courtInstance, slotsArray) => {
+    if (!slotsArray || slotsArray.length === 0) return [];
+    const courtSlots = getCourtTimeSlots(courtInstance);
+    const sorted = [...slotsArray].sort((a, b) => courtSlots.indexOf(a) - courtSlots.indexOf(b));
+    let segments = [];
+    let currentSegment = { start_time: sorted[0], end_time: getNextSlot(courtInstance, sorted[0]) };
+
+    for (let i = 1; i < sorted.length; i++) {
+       const slot = sorted[i];
+       if (courtSlots.indexOf(slot) === courtSlots.indexOf(sorted[i-1]) + 1) {
+           currentSegment.end_time = getNextSlot(courtInstance, slot);
+       } else {
+           segments.push(currentSegment);
+           currentSegment = { start_time: slot, end_time: getNextSlot(courtInstance, slot) };
+       }
+    }
+    segments.push(currentSegment);
+    return segments;
   };
 
   const handleSlotClick = (court, slot) => {
     if (selectedCourt?.id !== court.id) {
       setSelectedCourt(court);
       setSelectedSlots([slot]);
-      setBookingData({ ...bookingData, start_time: slot, end_time: getNextSlot(slot) });
     } else {
-      let newSlots = selectedSlots.includes(slot) ? selectedSlots.filter(s => s !== slot) : [...selectedSlots, slot];
-      newSlots.sort();
-      setSelectedSlots(newSlots);
-      if (newSlots.length > 0) {
-        setBookingData({ ...bookingData, start_time: newSlots[0], end_time: getNextSlot(newSlots[newSlots.length - 1]) });
+      if (selectedSlots.includes(slot)) {
+        setSelectedSlots(selectedSlots.filter(s => s !== slot));
       } else {
-        setBookingData({ ...bookingData, start_time: '', end_time: '' });
+        setSelectedSlots([...selectedSlots, slot]);
       }
     }
+    // We update bookingData start/end time just for backward compat check if needed,
+    // although we will rely on selectedSlots mostly.
+    setBookingData({ ...bookingData, start_time: 'MULTIPLE' });
   };
 
   const handleChange = (e) => setBookingData({ ...bookingData, [e.target.name]: e.target.value });
@@ -115,46 +163,52 @@ export default function BranchDetail() {
     }
   }, [id, bookingData.booking_date]);
 
+  const timeToMin = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
   const calculateHours = () => {
-    if (!bookingData.start_time || !bookingData.end_time) return 0;
-    const start = new Date(`2000-01-01T${bookingData.start_time}`);
-    const end = new Date(`2000-01-01T${bookingData.end_time}`);
-    const diff = (end - start) / 3600000;
-    return diff > 0 ? diff : 0;
+    if (selectedSlots.length === 0 || !selectedCourt) return 0;
+    const segments = groupSlotsIntoSegments(selectedCourt, selectedSlots);
+    let total = 0;
+    segments.forEach(seg => {
+      const start = new Date(`2000-01-01T${seg.start_time}`);
+      const end = new Date(`2000-01-01T${seg.end_time}`);
+      total += (end - start) / 3600000;
+    });
+    return total > 0 ? total : 0;
   };
 
   const calculateTotal = () => {
-    if (!selectedCourt || !bookingData.start_time || !bookingData.end_time) return 0;
+    if (!selectedCourt || selectedSlots.length === 0) return 0;
 
-    const timeToMin = (t) => {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
-    };
-
-    const startMin = timeToMin(bookingData.start_time);
-    const endMin = timeToMin(bookingData.end_time);
-    if (endMin <= startMin) return 0;
-
+    const segments = groupSlotsIntoSegments(selectedCourt, selectedSlots);
     let total = 0;
-    let currentMin = startMin;
 
-    while (currentMin < endMin) {
-      let slotPrice = selectedCourt.price_per_hour;
+    segments.forEach(seg => {
+      const startMin = timeToMin(seg.start_time);
+      const endMin = timeToMin(seg.end_time);
+      let currentMin = startMin;
 
-      if (selectedCourt.court_peak_hours && selectedCourt.court_peak_hours.length > 0) {
-        for (let ph of selectedCourt.court_peak_hours) {
-          const phStart = timeToMin(ph.from_time.substring(0, 5));
-          const phEnd = timeToMin(ph.to_time.substring(0, 5));
-          if (currentMin >= phStart && currentMin < phEnd) {
-            slotPrice = ph.price_peak_hour;
-            break;
+      while (currentMin < endMin) {
+        let slotPrice = selectedCourt.price_per_hour;
+
+        if (selectedCourt.court_peak_hours && selectedCourt.court_peak_hours.length > 0) {
+          for (let ph of selectedCourt.court_peak_hours) {
+            const phStart = timeToMin(ph.from_time.substring(0, 5));
+            const phEnd = timeToMin(ph.to_time.substring(0, 5));
+            if (currentMin >= phStart && currentMin < phEnd) {
+              slotPrice = ph.price_peak_hour;
+              break;
+            }
           }
         }
-      }
 
-      total += slotPrice / 2;
-      currentMin += 30;
-    }
+        total += slotPrice / 2;
+        currentMin += 30;
+      }
+    });
 
     return total;
   };
@@ -197,24 +251,46 @@ export default function BranchDetail() {
       return dispatch(showNotification({ message: 'Không thể đặt sân trong quá khứ', severity: 'warning' }));
     }
     const hours = calculateHours();
-    if (hours <= 0) return dispatch(showNotification({ message: 'Giờ kết thúc phải sau giờ bắt đầu', severity: 'warning' }));
+    if (hours <= 0) return dispatch(showNotification({ message: 'Vui lòng chọn thời gian', severity: 'warning' }));
 
     try {
       setBookingLoading(true);
-      const total = calculateTotal();
-      const payload = {
-        user_id: user.id,
-        court_id: selectedCourt.id,
-        booking_date: bookingData.booking_date,
-        day_of_week: new Date(bookingData.booking_date).getDay(),
-        start_time: bookingData.start_time,
-        end_time: bookingData.end_time,
-        total_price: total,
-        final_price: promoResult?.valid ? promoResult.final_price : total,
-        promotion_code: promoResult?.valid ? bookingData.promotion_code : null
-      };
+      const segments = groupSlotsIntoSegments(selectedCourt, selectedSlots);
+      
+      for (const seg of segments) {
+        const startMin = timeToMin(seg.start_time);
+        const endMin = timeToMin(seg.end_time);
+        let currentMin = startMin;
+        let segTotal = 0;
+        while (currentMin < endMin) {
+          let slotPrice = selectedCourt.price_per_hour;
+          if (selectedCourt.court_peak_hours && selectedCourt.court_peak_hours.length > 0) {
+            for (let ph of selectedCourt.court_peak_hours) {
+              const phStart = timeToMin(ph.from_time.substring(0, 5));
+              const phEnd = timeToMin(ph.to_time.substring(0, 5));
+              if (currentMin >= phStart && currentMin < phEnd) {
+                slotPrice = ph.price_peak_hour;
+                break;
+              }
+            }
+          }
+          segTotal += slotPrice / 2;
+          currentMin += 30;
+        }
 
-      await bookingService.bookCourt(payload);
+        const payload = {
+          user_id: user.id,
+          court_id: selectedCourt.id,
+          booking_date: bookingData.booking_date,
+          day_of_week: new Date(bookingData.booking_date).getDay(),
+          start_time: seg.start_time,
+          end_time: seg.end_time,
+          total_price: segTotal,
+          promotion_code: promoResult?.valid ? bookingData.promotion_code : null
+        };
+        await bookingService.bookCourt(payload);
+      }
+      
       dispatch(showNotification({ message: 'Đặt sân thành công!', severity: 'success' }));
       setOpenBooking(false);
       setBookingData({ ...bookingData, start_time: '', end_time: '', promotion_code: '' });
@@ -246,6 +322,16 @@ export default function BranchDetail() {
       <Container maxWidth="lg">
         {/* Branch Info */}
         <Box sx={{ mb: 6 }}>
+          {branch.image_url && (
+            <Box sx={{ width: '100%', height: 400, borderRadius: 4, overflow: 'hidden', mb: 4 }}>
+               <img 
+                 src={branch.image_url.startsWith('http') ? branch.image_url : `http://localhost:8000/storage/${branch.image_url}`}
+                 alt={branch.name}
+                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                 onError={(e) => { e.target.style.display = 'none'; }}
+               />
+            </Box>
+          )}
           <Typography variant="h3" sx={{ fontWeight: 800, mb: 2 }}>{branch.name}</Typography>
           <Box sx={{ display: 'flex', gap: 3, mb: 3, flexWrap: 'wrap' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -321,7 +407,7 @@ export default function BranchDetail() {
                         Bảng giờ: Nhấn vào từng ô liền kề để chọn thời gian đặt sân.
                       </Typography>
                       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(60px, 1fr))', gap: 1 }}>
-                        {TIME_SLOTS.map(slot => {
+                        {getCourtTimeSlots(court).map(slot => {
                           const isBooked = isSlotBooked(court, slot);
                           const isSelected = isSlotSelected(court, slot);
                           return (
@@ -345,9 +431,13 @@ export default function BranchDetail() {
                           );
                         })}
                       </Box>
-                      {selectedCourt?.id === court.id && bookingData.start_time && (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, bgcolor: 'rgba(255,214,0,0.1)', p: 1.5, borderRadius: 2, border: '1px solid rgba(255,214,0,0.2)' }}>
-                          <Typography variant="body2" color="#FFD600">Đã chọn: <strong>{bookingData.start_time} - {bookingData.end_time || '...'}</strong></Typography>
+                      {selectedCourt?.id === court.id && selectedSlots.length > 0 && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2, bgcolor: 'rgba(255,214,0,0.1)', p: 1.5, borderRadius: 2, border: '1px solid rgba(255,214,0,0.2)' }}>
+                          {groupSlotsIntoSegments(court, selectedSlots).map((seg, i) => (
+                            <Typography key={i} variant="body2" color="#FFD600">
+                              Đã chọn: <strong>{seg.start_time} - {seg.end_time}</strong>
+                            </Typography>
+                          ))}
                         </Box>
                       )}
                     </Grid>
@@ -356,6 +446,40 @@ export default function BranchDetail() {
               </Grid>
             ))}
           </Grid>
+        )}
+
+        {/* Reviews Section */}
+        {branch.reviews && branch.reviews.length > 0 && (
+          <Box sx={{ mt: 8 }}>
+            <Typography variant="h4" sx={{ mb: 4, fontWeight: 700 }}>Đánh giá từ người chơi</Typography>
+            <Grid container spacing={3}>
+              {branch.reviews.map((review) => (
+                <Grid item xs={12} md={6} lg={4} key={review.id}>
+                  <Card sx={{ bgcolor: '#111', border: '1px solid #2a2a2a', borderRadius: 4, height: '100%' }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                        <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: '#FFD600', color: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.2rem' }}>
+                          {review.user?.name ? review.user.name.charAt(0).toUpperCase() : 'U'}
+                        </Box>
+                        <Box>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{review.user?.name || 'Người dùng ẩn danh'}</Typography>
+                          <Typography variant="caption" sx={{ color: '#9a9a9a' }}>{new Date(review.created_at).toLocaleDateString('vi-VN')}</Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 2, color: '#FFD600' }}>
+                        {[...Array(5)].map((_, i) => (
+                          <Star key={i} fontSize="small" sx={{ color: i < review.rating ? '#FFD600' : '#333' }} />
+                        ))}
+                      </Box>
+                      <Typography variant="body2" sx={{ color: '#ccc', fontStyle: 'italic', whiteSpace: 'pre-line' }}>
+                        "{review.comment || 'Không có nhận xét'}"
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          </Box>
         )}
       </Container>
 
@@ -370,7 +494,12 @@ export default function BranchDetail() {
               <Typography variant="subtitle1" fontWeight={600} mb={1}>{selectedCourt.name}</Typography>
               <Typography variant="body2" color="text.secondary">{branch.name}</Typography>
               <Typography variant="body2" color="text.secondary" mt={1}>Ngày: {bookingData.booking_date}</Typography>
-              <Typography variant="body2" color="text.secondary">Giờ: {bookingData.start_time} - {bookingData.end_time}</Typography>
+              <Typography variant="body2" color="text.secondary" mt={1}>Giờ đã chọn:</Typography>
+              {groupSlotsIntoSegments(selectedCourt, selectedSlots).map((seg, i) => (
+                 <Typography key={i} variant="body2" color="text.secondary" ml={2}>
+                   - {seg.start_time} tới {seg.end_time}
+                 </Typography>
+              ))}
             </Box>
           )}
 

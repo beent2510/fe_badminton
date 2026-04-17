@@ -34,17 +34,66 @@ export default function CourtDetail() {
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
+  const getCourtTimeSlots = (courtInstance) => {
+    if (courtInstance?.schedules && courtInstance.schedules.length > 0) {
+      let slots = [];
+      courtInstance.schedules.forEach(schedule => {
+        const startStr = schedule.start_time.substring(0, 5);
+        const endStr = schedule.end_time.substring(0, 5);
+        const duration = parseInt(schedule.slot_duration) || 30;
 
-  const TIME_SLOTS = Array.from({ length: 37 }, (_, i) => {
-    const hour = Math.floor(i / 2) + 5;
-    const min = i % 2 === 0 ? '00' : '30';
-    return `${hour.toString().padStart(2, '0')}:${min}`;
-  });
+        const [startH, startM] = startStr.split(':').map(Number);
+        const [endH, endM] = endStr.split(':').map(Number);
+        
+        let currentMin = startH * 60 + startM;
+        const endDayMin = endH * 60 + endM;
 
-  const getNextSlot = (slot) => {
+        while (currentMin < endDayMin) {
+          const h = Math.floor(currentMin / 60).toString().padStart(2, '0');
+          const m = (currentMin % 60).toString().padStart(2, '0');
+          slots.push(`${h}:${m}`);
+          currentMin += duration;
+        }
+      });
+      return [...new Set(slots)].sort();
+    }
+    return Array.from({ length: 37 }, (_, i) => {
+      const hour = Math.floor(i / 2) + 5;
+      const min = i % 2 === 0 ? '00' : '30';
+      return `${hour.toString().padStart(2, '0')}:${min}`;
+    });
+  };
+
+  const getNextSlot = (courtInstance, slot) => {
+    const slots = getCourtTimeSlots(courtInstance);
+    const index = slots.indexOf(slot);
+    if (index !== -1 && index + 1 < slots.length) {
+      return slots[index + 1];
+    }
+    const defaultDuration = courtInstance?.schedules?.[0]?.slot_duration || 30;
     const [h, m] = slot.split(':').map(Number);
-    if (m === 0) return `${h.toString().padStart(2, '0')}:30`;
-    return `${(h + 1).toString().padStart(2, '0')}:00`;
+    let totalMins = h * 60 + m + parseInt(defaultDuration);
+    return `${Math.floor(totalMins / 60).toString().padStart(2, '0')}:${(totalMins % 60).toString().padStart(2, '0')}`;
+  };
+
+  const groupSlotsIntoSegments = (courtInstance, slotsArray) => {
+    if (!slotsArray || slotsArray.length === 0) return [];
+    const courtSlots = getCourtTimeSlots(courtInstance);
+    const sorted = [...slotsArray].sort((a, b) => courtSlots.indexOf(a) - courtSlots.indexOf(b));
+    let segments = [];
+    let currentSegment = { start_time: sorted[0], end_time: getNextSlot(courtInstance, sorted[0]) };
+
+    for (let i = 1; i < sorted.length; i++) {
+       const slot = sorted[i];
+       if (courtSlots.indexOf(slot) === courtSlots.indexOf(sorted[i-1]) + 1) {
+           currentSegment.end_time = getNextSlot(courtInstance, slot);
+       } else {
+           segments.push(currentSegment);
+           currentSegment = { start_time: slot, end_time: getNextSlot(courtInstance, slot) };
+       }
+    }
+    segments.push(currentSegment);
+    return segments;
   };
 
   const isSlotBooked = (slot) => {
@@ -58,14 +107,13 @@ export default function CourtDetail() {
 
   const handleSlotClick = (slot) => {
     if (isSlotBooked(slot)) return;
-    let newSlots = selectedSlots.includes(slot) ? selectedSlots.filter(s => s !== slot) : [...selectedSlots, slot];
-    newSlots.sort();
-    setSelectedSlots(newSlots);
-    if (newSlots.length > 0) {
-      setBookingData({ ...bookingData, start_time: newSlots[0], end_time: getNextSlot(newSlots[newSlots.length - 1]) });
+    
+    if (selectedSlots.includes(slot)) {
+      setSelectedSlots(selectedSlots.filter(s => s !== slot));
     } else {
-      setBookingData({ ...bookingData, start_time: '', end_time: '' });
+      setSelectedSlots([...selectedSlots, slot]);
     }
+    setBookingData({ ...bookingData, start_time: 'MULTIPLE' });
   };
 
   const isSlotSelected = (slot) => {
@@ -103,45 +151,52 @@ export default function CourtDetail() {
     }
   };
 
+  const timeToMin = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+
   const calculateHours = () => {
-    const start = new Date(`2000-01-01T${bookingData.start_time}`);
-    const end = new Date(`2000-01-01T${bookingData.end_time}`);
-    const diff = (end - start) / 3600000;
-    return diff > 0 ? diff : 0;
+    if (selectedSlots.length === 0 || !court) return 0;
+    const segments = groupSlotsIntoSegments(court, selectedSlots);
+    let total = 0;
+    segments.forEach(seg => {
+      const start = new Date(`2000-01-01T${seg.start_time}`);
+      const end = new Date(`2000-01-01T${seg.end_time}`);
+      total += (end - start) / 3600000;
+    });
+    return total > 0 ? total : 0;
   };
 
   const calculateTotal = () => {
-    if (!court || !bookingData.start_time || !bookingData.end_time) return 0;
+    if (!court || selectedSlots.length === 0) return 0;
 
-    const timeToMin = (t) => {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
-    };
-
-    const startMin = timeToMin(bookingData.start_time);
-    const endMin = timeToMin(bookingData.end_time);
-    if (endMin <= startMin) return 0;
-
+    const segments = groupSlotsIntoSegments(court, selectedSlots);
     let total = 0;
-    let currentMin = startMin;
 
-    while (currentMin < endMin) {
-      let slotPrice = court.price_per_hour;
+    segments.forEach(seg => {
+      const startMin = timeToMin(seg.start_time);
+      const endMin = timeToMin(seg.end_time);
+      let currentMin = startMin;
 
-      if (court.court_peak_hours && court.court_peak_hours.length > 0) {
-        for (let ph of court.court_peak_hours) {
-          const phStart = timeToMin(ph.from_time.substring(0, 5));
-          const phEnd = timeToMin(ph.to_time.substring(0, 5));
-          if (currentMin >= phStart && currentMin < phEnd) {
-            slotPrice = ph.price_peak_hour;
-            break;
+      while (currentMin < endMin) {
+        let slotPrice = court.price_per_hour;
+
+        if (court.court_peak_hours && court.court_peak_hours.length > 0) {
+          for (let ph of court.court_peak_hours) {
+            const phStart = timeToMin(ph.from_time.substring(0, 5));
+            const phEnd = timeToMin(ph.to_time.substring(0, 5));
+            if (currentMin >= phStart && currentMin < phEnd) {
+              slotPrice = ph.price_peak_hour;
+              break;
+            }
           }
         }
-      }
 
-      total += slotPrice / 2;
-      currentMin += 30;
-    }
+        total += slotPrice / 2;
+        currentMin += 30;
+      }
+    });
 
     return total;
   };
@@ -176,27 +231,51 @@ export default function CourtDetail() {
       return dispatch(showNotification({ message: 'Không thể đặt sân trong quá khứ', severity: 'warning' }));
     }
     const hours = calculateHours();
-    if (hours <= 0) return dispatch(showNotification({ message: 'Giờ kết thúc phải sau giờ bắt đầu', severity: 'warning' }));
+    if (hours <= 0) return dispatch(showNotification({ message: 'Vui lòng chọn thời gian', severity: 'warning' }));
 
     try {
       setBookingLoading(true);
-      const total = calculateTotal();
-      const payload = {
-        user_id: user.id,
-        court_id: court.id,
-        booking_date: bookingData.booking_date,
-        day_of_week: new Date(bookingData.booking_date).getDay(),
-        start_time: bookingData.start_time,
-        end_time: bookingData.end_time,
-        total_price: total,
-        final_price: promoResult?.valid ? promoResult.final_price : total,
-        promotion_code: promoResult?.valid ? bookingData.promotion_code : null
-      };
+      const segments = groupSlotsIntoSegments(court, selectedSlots);
+      
+      for (const seg of segments) {
+        const startMin = timeToMin(seg.start_time);
+        const endMin = timeToMin(seg.end_time);
+        let currentMin = startMin;
+        let segTotal = 0;
+        while (currentMin < endMin) {
+          let slotPrice = court.price_per_hour;
+          if (court.court_peak_hours && court.court_peak_hours.length > 0) {
+            for (let ph of court.court_peak_hours) {
+              const phStart = timeToMin(ph.from_time.substring(0, 5));
+              const phEnd = timeToMin(ph.to_time.substring(0, 5));
+              if (currentMin >= phStart && currentMin < phEnd) {
+                slotPrice = ph.price_peak_hour;
+                break;
+              }
+            }
+          }
+          segTotal += slotPrice / 2;
+          currentMin += 30;
+        }
 
-      await bookingService.bookCourt(payload);
+        const payload = {
+          user_id: user.id,
+          court_id: court.id,
+          booking_date: bookingData.booking_date,
+          day_of_week: new Date(bookingData.booking_date).getDay(),
+          start_time: seg.start_time,
+          end_time: seg.end_time,
+          total_price: segTotal,
+          promotion_code: promoResult?.valid ? bookingData.promotion_code : null
+        };
+        await bookingService.bookCourt(payload);
+      }
+
       dispatch(showNotification({ message: 'Đặt sân thành công!', severity: 'success' }));
       setOpenBooking(false);
       setSelectedSlots([]);
+      setBookingData({ ...bookingData, start_time: '', end_time: '', promotion_code: '' });
+      setPromoResult(null);
       // Optional: navigate to my-bookings
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Có lỗi xảy ra khi đặt sân';
@@ -317,6 +396,12 @@ export default function CourtDetail() {
           <Box sx={{ mb: 3 }}>
             <Typography variant="subtitle1" fontWeight={600} mb={1}>{court.name}</Typography>
             <Typography variant="body2" color="text.secondary">{court.branch?.name}</Typography>
+            <Typography variant="body2" color="text.secondary" mt={1}>Giờ đã chọn:</Typography>
+            {groupSlotsIntoSegments(court, selectedSlots).map((seg, i) => (
+               <Typography key={i} variant="body2" color="text.secondary" ml={2}>
+                 - {seg.start_time} tới {seg.end_time}
+               </Typography>
+            ))}
           </Box>
 
           <Grid container spacing={2}>
@@ -340,7 +425,7 @@ export default function CourtDetail() {
                 </Box>
               </Box>
               <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 1 }}>
-                {TIME_SLOTS.map(slot => {
+                {getCourtTimeSlots(court).map(slot => {
                   const isBooked = isSlotBooked(slot);
                   const isSelected = isSlotSelected(slot);
                   return (
@@ -364,10 +449,15 @@ export default function CourtDetail() {
                   );
                 })}
               </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, bgcolor: 'rgba(255,214,0,0.1)', p: 1.5, borderRadius: 2, border: '1px solid rgba(255,214,0,0.2)' }}>
-                <Typography variant="body2" color="#FFD600">Bắt đầu: <strong>{bookingData.start_time}</strong></Typography>
-                <Typography variant="body2" color="#FFD600">Kết thúc: <strong>{bookingData.end_time}</strong></Typography>
-              </Box>
+              {selectedSlots.length > 0 && (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2, bgcolor: 'rgba(255,214,0,0.1)', p: 1.5, borderRadius: 2, border: '1px solid rgba(255,214,0,0.2)' }}>
+                  {groupSlotsIntoSegments(court, selectedSlots).map((seg, i) => (
+                    <Typography key={i} variant="body2" color="#FFD600">
+                      Đã chọn: <strong>{seg.start_time} - {seg.end_time}</strong>
+                    </Typography>
+                  ))}
+                </Box>
+              )}
             </Grid>
             <Grid xs={12}>
               <Box sx={{ display: 'flex', gap: 1 }}>

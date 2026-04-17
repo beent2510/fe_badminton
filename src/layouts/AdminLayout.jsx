@@ -23,9 +23,12 @@ const AdminLayout = () => {
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
   const handleLogout = () => { dispatch(logout()); navigate('/'); };
 
-  const menuItems = [
+  const isAdmin = user?.role === 'admin';
+
+  let menuItems = [
     { text: 'Dashboard', icon: <Dashboard />, path: '/admin' },
-    { text: 'Chi nhánh', icon: <Storefront />, path: '/admin/branches' },
+    ...(isAdmin ? [{ text: 'Quản lý nhân sự', icon: <MenuIcon />, path: '/admin/managers' }] : []),
+    ...(isAdmin ? [{ text: 'Chi nhánh', icon: <Storefront />, path: '/admin/branches' }] : []),
     { 
       text: 'Quản lý Sân', 
       icon: <SportsTennis />, 
@@ -37,7 +40,7 @@ const AdminLayout = () => {
       ]
     },
     { text: 'Đặt sân', icon: <CalendarMonth />, path: '/admin/bookings' },
-    { text: 'Khuyến mãi', icon: <CardGiftcard />, path: '/admin/promotions' },
+    ...(isAdmin ? [{ text: 'Khuyến mãi', icon: <CardGiftcard />, path: '/admin/promotions' }] : []),
     { text: 'Đánh giá', icon: <RateReview />, path: '/admin/reviews' },
     { text: 'Thanh toán', icon: <Payment />, path: '/admin/payments' },
   ];

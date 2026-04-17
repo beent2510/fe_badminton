@@ -4,9 +4,14 @@ import { Storefront, SportsTennis, BookOnline, AttachMoney, TrendingUp, PeopleAl
 import bookingService from '../../services/bookingService';
 import adminService from '../../services/adminService';
 
+import { useDispatch, useSelector } from 'react-redux';
+
 export default function Dashboard() {
+  const { user } = useSelector(state => state.auth);
+  const isAdmin = user?.role === 'admin';
   const [stats, setStats] = useState({ bookings: 0, courts: 0, branches: 0, revenue: 0, pending: 0, confirmed: 0, cancelled: 0, promotions: 0 });
   const [recentBookings, setRecentBookings] = useState([]);
+  const [managedBranches, setManagedBranches] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -16,7 +21,7 @@ export default function Dashboard() {
           bookingService.adminGetAll({ per_page: 999 }),
           adminService.getCourts({ per_page: 999 }),
           adminService.getBranches({ per_page: 999 }),
-          adminService.getPromotions({ per_page: 999 }),
+          isAdmin ? adminService.getPromotions({ per_page: 999 }) : Promise.resolve({ data: [] }),
         ]);
 
         const bookings = bookingsRes.data.items || bookingsRes.data.data || bookingsRes.data;
@@ -33,9 +38,14 @@ export default function Dashboard() {
           pending,
           confirmed,
           cancelled,
-          promotions: (promoRes.data.items || promoRes.data.data || promoRes.data).length,
+          promotions: (promoRes.data.items || promoRes.data.data || promoRes.data || []).length,
         });
         setRecentBookings(bookings.slice(0, 5));
+        
+        if (!isAdmin) {
+          const branchList = branchesRes.data.items || branchesRes.data.data || branchesRes.data || [];
+          setManagedBranches(branchList);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -63,6 +73,22 @@ export default function Dashboard() {
         <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>Dashboard Tổng Quan</Typography>
         <Typography sx={{ color: '#9a9a9a' }}>Theo dõi hiệu suất kinh doanh hệ thống Bee Court</Typography>
       </Box>
+
+      {!isAdmin && managedBranches.length > 0 && (
+        <Card sx={{ mb: 4, bgcolor: 'rgba(255,214,0,0.1)', border: '1px solid #FFD600', borderRadius: 3 }}>
+          <CardContent>
+            <Typography variant="h6" fontWeight={700} color="#FFD600" mb={1}>Chi nhánh bạn đang quản lý:</Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {managedBranches.map(b => (
+                <Box key={b.id} sx={{ px: 2, py: 1, bgcolor: '#161616', borderRadius: 2, border: '1px solid #2a2a2a' }}>
+                  <Typography fontWeight={600}>{b.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">{b.address}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stat cards */}
       <Grid container spacing={3} mb={4}>
@@ -106,10 +132,12 @@ export default function Dashboard() {
                 </Box>
               ))}
 
-              <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(255,214,0,0.05)', borderRadius: 2, border: '1px solid rgba(255,214,0,0.1)' }}>
-                <Typography variant="body2" color="text.secondary">Mã khuyến mãi đang có</Typography>
-                <Typography variant="h5" fontWeight={800} color="#FFD600">{stats.promotions}</Typography>
-              </Box>
+              {isAdmin && (
+                <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(255,214,0,0.05)', borderRadius: 2, border: '1px solid rgba(255,214,0,0.1)' }}>
+                  <Typography variant="body2" color="text.secondary">Mã khuyến mãi đang có</Typography>
+                  <Typography variant="h5" fontWeight={800} color="#FFD600">{stats.promotions}</Typography>
+                </Box>
+              )}
             </CardContent>
           </Card>
         </Grid>

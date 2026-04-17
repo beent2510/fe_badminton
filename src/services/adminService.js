@@ -3,9 +3,15 @@ import axiosInstance from './axiosConfig';
 const adminService = {
   // Branches
   getBranches: (params) => axiosInstance.get('/admin/branches', { params }),
-  createBranch: (data) => axiosInstance.post('/admin/branches', data),
-  updateBranch: (id, data) => axiosInstance.put(`/admin/branches/${id}`, data),
+  createBranch: (data) => axiosInstance.post('/admin/branches', data, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  updateBranch: (id, data) => axiosInstance.post(`/admin/branches/${id}?_method=PUT`, data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   deleteBranch: (id) => axiosInstance.delete(`/admin/branches/${id}`),
+
+  // Managers
+  getManagers: (params) => axiosInstance.get('/admin/managers', { params }),
+  createManager: (data) => axiosInstance.post('/admin/managers', data),
+  updateManager: (id, data) => axiosInstance.put(`/admin/managers/${id}`, data),
+  deleteManager: (id) => axiosInstance.delete(`/admin/managers/${id}`),
 
   // Courts
   getCourts: (params) => axiosInstance.get('/admin/courts', { params }),

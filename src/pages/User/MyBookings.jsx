@@ -69,7 +69,7 @@ export default function MyBookings() {
     }
   };
 
-  const canReview = (booking) => (booking.status === 'confirmed' || booking.status === 'paid') && !reviewedIds[booking.id];
+  const canReview = (booking) => (booking.status === 'confirmed' || booking.status === 'paid') && !booking.review_id && !reviewedIds[booking.id];
   const isPlayed = (booking) => {
     const now = new Date();
     const playDate = new Date(booking.booking_date);
@@ -157,7 +157,7 @@ export default function MyBookings() {
                           Đánh giá sân
                         </Button>
                       )}
-                      {reviewedIds[booking.id] && (
+                      {(booking.review_id || reviewedIds[booking.id]) && (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#22c55e', fontSize: '0.85rem', width: '100%', justifyContent: 'center' }}>
                           <Star fontSize="small" />
                           Đã đánh giá

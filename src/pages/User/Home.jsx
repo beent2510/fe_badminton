@@ -183,7 +183,8 @@ export default function Home() {
                     <CardMedia
                       component="img"
                       sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-                      image={`http://localhost:8000/public/?name=${encodeURIComponent(branch.name)}&background=1e1e1e&color=FFD600&size=400&font-size=0.3`}
+                      image={branch.image_url ? (branch.image_url.startsWith('http') ? branch.image_url : `http://localhost:8000/storage/${branch.image_url}`) : `https://placehold.co/400x240/1e1e1e/FFD600?text=${encodeURIComponent(branch.name)}`}
+                      onError={(e) => { e.target.src = `https://placehold.co/400x240/1e1e1e/FFD600?text=${encodeURIComponent(branch.name)}`; }}
                       alt={branch.name}
                     />
                     <Box sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', px: 1.5, py: 0.5, borderRadius: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
