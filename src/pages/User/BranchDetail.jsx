@@ -16,6 +16,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  MenuItem,
 } from "@mui/material";
 import { LocationOn, Phone, Star, SportsTennis } from "@mui/icons-material";
 import { useDispatch, useSelector } from "react-redux";
@@ -23,6 +24,8 @@ import { showNotification } from "../../store/notificationSlice";
 import branchService from "../../services/branchService";
 import paymentService from "../../services/paymentService";
 import promotionService from "../../services/promotionService";
+import blockedSlotService from "../../services/blockedSlotService";
+import bookingService from "../../services/bookingService";
 
 export default function BranchDetail() {
   const { id } = useParams();
@@ -30,24 +33,30 @@ export default function BranchDetail() {
   const dispatch = useDispatch();
   const user = JSON.parse(localStorage.getItem("user"));
   const { isAuthenticated } = useSelector((state) => state.auth);
-
   const [branch, setBranch] = useState(null);
   const [courts, setCourts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Booking state
   const [openBooking, setOpenBooking] = useState(false);
-  const [selectedCourt, setSelectedCourt] = useState(null);
+  const [selectedSlotsByCourt, setSelectedSlotsByCourt] = useState({});
+  const [blockedSlots, setBlockedSlots] = useState([]);
   const [bookingData, setBookingData] = useState({
     booking_date: new Date().toISOString().split("T")[0],
     start_time: "",
     end_time: "",
     promotion_code: "",
+    booking_type: "adhoc",
+    booking_purpose: "regular",
+    booking_mode: "single",
+    series_end_date: "",
+    interval_unit: "week",
+    interval_value: 1,
+    payment_method: "zalopay",
+    use_deposit: false,
   });
   const [promoResult, setPromoResult] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [selectionStep, setSelectionStep] = useState(0);
-  const [selectedSlots, setSelectedSlots] = useState([]);
 
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -127,20 +136,21 @@ export default function BranchDetail() {
   };
 
   const handleSlotClick = (court, slot) => {
-    if (isSlotPast(slot)) return;
+    if (isSlotPast(slot) || isSlotBlocked(slot)) return;
 
-    if (selectedCourt?.id !== court.id) {
-      setSelectedCourt(court);
-      setSelectedSlots([slot]);
-    } else {
-      if (selectedSlots.includes(slot)) {
-        setSelectedSlots(selectedSlots.filter((s) => s !== slot));
-      } else {
-        setSelectedSlots([...selectedSlots, slot]);
+    setSelectedSlotsByCourt((prev) => {
+      const current = prev[court.id] || [];
+      const next = current.includes(slot)
+        ? current.filter((s) => s !== slot)
+        : [...current, slot];
+
+      const updated = { ...prev, [court.id]: next };
+      if (next.length === 0) {
+        delete updated[court.id];
       }
-    }
-    // We update bookingData start/end time just for backward compat check if needed,
-    // although we will rely on selectedSlots mostly.
+      return updated;
+    });
+
     setBookingData({ ...bookingData, start_time: "MULTIPLE" });
   };
 
@@ -148,16 +158,24 @@ export default function BranchDetail() {
     setBookingData({ ...bookingData, [e.target.name]: e.target.value });
 
   const isSlotBooked = (court, slot) => {
-    if (!court.bookings || court.bookings.length === 0) return false;
-    return court.bookings.some((booking) => {
+    const bookings = court.bookings || [];
+    const hasBooking = bookings.some((booking) => {
       const start = booking.start_time.substring(0, 5);
       const end = booking.end_time.substring(0, 5);
+      return slot >= start && slot < end;
+    });
+    if (hasBooking) return true;
+    const items = court.booking_items || court.bookingItems || [];
+    return items.some((item) => {
+      const start = item.start_time.substring(0, 5);
+      const end = item.end_time.substring(0, 5);
       return slot >= start && slot < end;
     });
   };
 
   const isSlotSelected = (court, slot) => {
-    return selectedCourt?.id === court.id && selectedSlots.includes(slot);
+    const slots = selectedSlotsByCourt[court.id] || [];
+    return slots.includes(slot);
   };
 
   useEffect(() => {
@@ -201,6 +219,37 @@ export default function BranchDetail() {
     }
   }, [id, bookingData.booking_date]);
 
+  useEffect(() => {
+    const fetchBlockedSlots = async () => {
+      try {
+        const res = await blockedSlotService.getAll({
+          date: bookingData.booking_date,
+        });
+        setBlockedSlots(res.data || []);
+      } catch {
+        setBlockedSlots([]);
+      }
+    };
+    if (bookingData.booking_date) {
+      fetchBlockedSlots();
+    }
+  }, [bookingData.booking_date]);
+
+  useEffect(() => {
+    if (
+      bookingData.booking_mode === "recurring" &&
+      bookingData.payment_method !== "cash"
+    ) {
+      setBookingData((prev) => ({ ...prev, payment_method: "cash" }));
+    }
+  }, [bookingData.booking_mode, bookingData.payment_method]);
+
+  useEffect(() => {
+    if (bookingData.booking_type === "fixed" && !bookingData.use_deposit) {
+      setBookingData((prev) => ({ ...prev, use_deposit: true }));
+    }
+  }, [bookingData.booking_type, bookingData.use_deposit]);
+
   const timeToMin = (t) => {
     const [h, m] = t.split(":").map(Number);
     return h * 60 + m;
@@ -213,52 +262,72 @@ export default function BranchDetail() {
     return timeToMin(slot) <= nowMinutes;
   };
 
+  const isSlotBlocked = (slot) => {
+    return blockedSlots.some((blocked) => {
+      const start = blocked.start_time?.substring(0, 5);
+      const end = blocked.end_time?.substring(0, 5);
+      if (!start || !end) return false;
+      return slot >= start && slot < end;
+    });
+  };
+
   const calculateHours = () => {
-    if (selectedSlots.length === 0 || !selectedCourt) return 0;
-    const segments = groupSlotsIntoSegments(selectedCourt, selectedSlots);
     let total = 0;
-    segments.forEach((seg) => {
-      const start = new Date(`2000-01-01T${seg.start_time}`);
-      const end = new Date(`2000-01-01T${seg.end_time}`);
-      total += (end - start) / 3600000;
+    courts.forEach((court) => {
+      const slots = selectedSlotsByCourt[court.id] || [];
+      if (slots.length === 0) return;
+      const segments = groupSlotsIntoSegments(court, slots);
+      segments.forEach((seg) => {
+        const start = new Date(`2000-01-01T${seg.start_time}`);
+        const end = new Date(`2000-01-01T${seg.end_time}`);
+        total += (end - start) / 3600000;
+      });
     });
     return total > 0 ? total : 0;
   };
 
-  const calculateTotal = () => {
-    if (!selectedCourt || selectedSlots.length === 0) return 0;
-
-    const segments = groupSlotsIntoSegments(selectedCourt, selectedSlots);
+  const calculateBaseTotal = () => {
     let total = 0;
+    courts.forEach((court) => {
+      const slots = selectedSlotsByCourt[court.id] || [];
+      if (slots.length === 0) return;
 
-    segments.forEach((seg) => {
-      const startMin = timeToMin(seg.start_time);
-      const endMin = timeToMin(seg.end_time);
-      let currentMin = startMin;
+      const segments = groupSlotsIntoSegments(court, slots);
+      segments.forEach((seg) => {
+        const startMin = timeToMin(seg.start_time);
+        const endMin = timeToMin(seg.end_time);
+        let currentMin = startMin;
 
-      while (currentMin < endMin) {
-        let slotPrice = selectedCourt.price_per_hour;
+        while (currentMin < endMin) {
+          let slotPrice = court.price_per_hour;
 
-        if (
-          selectedCourt.court_peak_hours &&
-          selectedCourt.court_peak_hours.length > 0
-        ) {
-          for (let ph of selectedCourt.court_peak_hours) {
-            const phStart = timeToMin(ph.from_time.substring(0, 5));
-            const phEnd = timeToMin(ph.to_time.substring(0, 5));
-            if (currentMin >= phStart && currentMin < phEnd) {
-              slotPrice = ph.price_peak_hour;
-              break;
+          if (court.court_peak_hours && court.court_peak_hours.length > 0) {
+            for (let ph of court.court_peak_hours) {
+              const phStart = timeToMin(ph.from_time.substring(0, 5));
+              const phEnd = timeToMin(ph.to_time.substring(0, 5));
+              if (currentMin >= phStart && currentMin < phEnd) {
+                slotPrice = ph.price_peak_hour;
+                break;
+              }
             }
           }
-        }
 
-        total += slotPrice / 2;
-        currentMin += 30;
-      }
+          total += slotPrice / 2;
+          currentMin += 30;
+        }
+      });
     });
 
     return total;
+  };
+
+  const calculateFixedDiscount = () => {
+    if (bookingData.booking_type !== "fixed") return 0;
+    return calculateBaseTotal() * 0.1;
+  };
+
+  const calculateTotal = () => {
+    return Math.max(0, calculateBaseTotal() - calculateFixedDiscount());
   };
 
   const checkPromoCode = async () => {
@@ -268,9 +337,29 @@ export default function BranchDetail() {
       const data = res.data;
       if (data.valid || data.success) {
         const total = calculateTotal();
+        const totalHours = calculateHours();
+        const courtsCount = Object.keys(selectedSlotsByCourt).length;
+        const hasPeakOverlap = courts.some((court) => {
+          const slots = selectedSlotsByCourt[court.id] || [];
+          if (slots.length === 0) return false;
+          return slots.some((slot) => {
+            if (!court.court_peak_hours) return false;
+            return court.court_peak_hours.some((ph) => {
+              const phStart = ph.from_time.substring(0, 5);
+              const phEnd = ph.to_time.substring(0, 5);
+              return slot >= phStart && slot < phEnd;
+            });
+          });
+        });
         const applyRes = await promotionService.applyCode(
           bookingData.promotion_code,
           total,
+          {
+            total_hours: totalHours,
+            courts_count: courtsCount,
+            has_peak_overlap: hasPeakOverlap,
+            booking_purpose: bookingData.booking_purpose,
+          },
         );
         const aData = applyRes.data;
         if (aData.success) {
@@ -280,6 +369,7 @@ export default function BranchDetail() {
             total: aData.total,
             discount,
             final_price: aData.total,
+            promotion: aData.promotion,
           });
           dispatch(
             showNotification({
@@ -309,11 +399,7 @@ export default function BranchDetail() {
 
   const handleOpenBooking = (court) => {
     if (!isAuthenticated) return navigate("/login");
-    if (
-      !selectedCourt ||
-      selectedCourt.id !== court.id ||
-      !bookingData.start_time
-    ) {
+    if (Object.keys(selectedSlotsByCourt).length === 0) {
       dispatch(
         showNotification({
           message: "Vui lòng chọn thời gian chơi trên bảng giờ",
@@ -343,68 +429,74 @@ export default function BranchDetail() {
         }),
       );
 
+    if (
+      bookingData.booking_mode === "recurring" &&
+      !bookingData.series_end_date
+    ) {
+      return dispatch(
+        showNotification({
+          message: "Vui lòng chọn ngày kết thúc cho đặt định kỳ",
+          severity: "warning",
+        }),
+      );
+    }
+
+    if (
+      bookingData.booking_mode === "recurring" &&
+      bookingData.payment_method !== "cash"
+    ) {
+      return dispatch(
+        showNotification({
+          message: "Đặt định kỳ hiện chỉ hỗ trợ thanh toán tiền mặt",
+          severity: "warning",
+        }),
+      );
+    }
+
     try {
       setBookingLoading(true);
-      const segments = groupSlotsIntoSegments(selectedCourt, selectedSlots);
+      const items = [];
+      const dayOfWeek = new Date(bookingData.booking_date).getDay();
 
-      if (bookingData.booking_date === formattedToday) {
-        const now = new Date();
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
-        const hasPastTime = segments.some(
-          (seg) => timeToMin(seg.start_time) <= nowMinutes,
-        );
-        if (hasPastTime) {
-          dispatch(
-            showNotification({
-              message: "Không thể đặt khung giờ đã qua",
-              severity: "warning",
-            }),
-          );
-          return;
-        }
-      }
-      const pendingBookings = [];
+      courts.forEach((court) => {
+        const slots = selectedSlotsByCourt[court.id] || [];
+        if (slots.length === 0) return;
+        const segments = groupSlotsIntoSegments(court, slots);
 
-      for (const seg of segments) {
-        const startMin = timeToMin(seg.start_time);
-        const endMin = timeToMin(seg.end_time);
-        let currentMin = startMin;
-        let segTotal = 0;
-        while (currentMin < endMin) {
-          let slotPrice = selectedCourt.price_per_hour;
-          if (
-            selectedCourt.court_peak_hours &&
-            selectedCourt.court_peak_hours.length > 0
-          ) {
-            for (let ph of selectedCourt.court_peak_hours) {
-              const phStart = timeToMin(ph.from_time.substring(0, 5));
-              const phEnd = timeToMin(ph.to_time.substring(0, 5));
-              if (currentMin >= phStart && currentMin < phEnd) {
-                slotPrice = ph.price_peak_hour;
-                break;
+        segments.forEach((seg) => {
+          const startMin = timeToMin(seg.start_time);
+          const endMin = timeToMin(seg.end_time);
+          let currentMin = startMin;
+          let segTotal = 0;
+
+          while (currentMin < endMin) {
+            let slotPrice = court.price_per_hour;
+            if (court.court_peak_hours && court.court_peak_hours.length > 0) {
+              for (let ph of court.court_peak_hours) {
+                const phStart = timeToMin(ph.from_time.substring(0, 5));
+                const phEnd = timeToMin(ph.to_time.substring(0, 5));
+                if (currentMin >= phStart && currentMin < phEnd) {
+                  slotPrice = ph.price_peak_hour;
+                  break;
+                }
               }
             }
+            segTotal += slotPrice / 2;
+            currentMin += 30;
           }
-          segTotal += slotPrice / 2;
-          currentMin += 30;
-        }
 
-        const payload = {
-          user_id: user.id,
-          court_id: selectedCourt.id,
-          booking_date: bookingData.booking_date,
-          day_of_week: new Date(bookingData.booking_date).getDay(),
-          start_time: seg.start_time,
-          end_time: seg.end_time,
-          total_price: segTotal,
-          promotion_code: promoResult?.valid
-            ? bookingData.promotion_code
-            : null,
-        };
-        pendingBookings.push(payload);
-      }
+          items.push({
+            court_id: court.id,
+            booking_date: bookingData.booking_date,
+            day_of_week: dayOfWeek,
+            start_time: seg.start_time,
+            end_time: seg.end_time,
+            total_price: segTotal,
+          });
+        });
+      });
 
-      if (pendingBookings.length === 0) {
+      if (items.length === 0) {
         throw new Error("Không có dữ liệu đặt sân để thanh toán");
       }
 
@@ -416,8 +508,49 @@ export default function BranchDetail() {
         throw new Error("Số tiền thanh toán không hợp lệ");
       }
 
+      const depositPercent = 30;
+      const chargeAmount = bookingData.use_deposit
+        ? Math.round((totalAmount * depositPercent) / 100)
+        : totalAmount;
+
+      const payload = {
+        items,
+        booking_type: bookingData.booking_type,
+        booking_purpose: bookingData.booking_purpose,
+        booking_mode: bookingData.booking_mode,
+        series_start_date: bookingData.booking_date,
+        series_end_date:
+          bookingData.series_end_date || bookingData.booking_date,
+        interval_unit: bookingData.interval_unit,
+        interval_value: bookingData.interval_value,
+        promotion_code: promoResult?.valid ? bookingData.promotion_code : null,
+        payment_method: bookingData.payment_method,
+        use_deposit: bookingData.use_deposit,
+        deposit_percent: depositPercent,
+      };
+
+      if (bookingData.payment_method === "cash") {
+        await bookingService.bookGroup(payload);
+        dispatch(
+          showNotification({
+            message: "Đặt sân thành công (thanh toán tiền mặt)",
+            severity: "success",
+          }),
+        );
+        setOpenBooking(false);
+        setSelectedSlotsByCourt({});
+        setBookingData({
+          ...bookingData,
+          start_time: "",
+          end_time: "",
+          promotion_code: "",
+        });
+        setPromoResult(null);
+        return;
+      }
+
       const paymentRes = await paymentService.createZalopayPayment({
-        amount: totalAmount,
+        amount: chargeAmount,
       });
 
       const paymentUrl = paymentRes.data?.payment_url;
@@ -429,7 +562,7 @@ export default function BranchDetail() {
       localStorage.setItem(
         "pending_zalopay_booking",
         JSON.stringify({
-          bookings: pendingBookings,
+          booking_group: payload,
           created_at: Date.now(),
           amount: totalAmount,
           payment_id: paymentId || null,
@@ -462,7 +595,8 @@ export default function BranchDetail() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-        }}>
+        }}
+      >
         <CircularProgress sx={{ color: "#FFD600" }} />
       </Box>
     );
@@ -483,7 +617,8 @@ export default function BranchDetail() {
                 borderRadius: 4,
                 overflow: "hidden",
                 mb: 4,
-              }}>
+              }}
+            >
               <img
                 src={
                   branch.image_url.startsWith("http")
@@ -529,7 +664,8 @@ export default function BranchDetail() {
             p: 3,
             borderRadius: 2,
             border: "1px solid #2a2a2a",
-          }}>
+          }}
+        >
           <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
             <Typography variant="h6">Chọn ngày chơi chung:</Typography>
             <TextField
@@ -538,8 +674,7 @@ export default function BranchDetail() {
               value={bookingData.booking_date}
               onChange={(e) => {
                 handleChange(e);
-                setSelectedCourt(null);
-                setSelectedSlots([]);
+                setSelectedSlotsByCourt({});
                 setBookingData((prev) => ({
                   ...prev,
                   start_time: "",
@@ -554,7 +689,8 @@ export default function BranchDetail() {
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             <Typography
               variant="body2"
-              sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              sx={{ display: "flex", alignItems: "center", gap: 1 }}
+            >
               <span
                 style={{
                   display: "inline-block",
@@ -563,12 +699,14 @@ export default function BranchDetail() {
                   backgroundColor: "#1e1e1e",
                   border: "1px solid #333",
                   borderRadius: 4,
-                }}></span>{" "}
+                }}
+              ></span>{" "}
               Trống
             </Typography>
             <Typography
               variant="body2"
-              sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              sx={{ display: "flex", alignItems: "center", gap: 1 }}
+            >
               <span
                 style={{
                   display: "inline-block",
@@ -576,12 +714,14 @@ export default function BranchDetail() {
                   height: 16,
                   backgroundColor: "#FFD600",
                   borderRadius: 4,
-                }}></span>{" "}
+                }}
+              ></span>{" "}
               Đang chọn
             </Typography>
             <Typography
               variant="body2"
-              sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              sx={{ display: "flex", alignItems: "center", gap: 1 }}
+            >
               <span
                 style={{
                   display: "inline-block",
@@ -589,8 +729,24 @@ export default function BranchDetail() {
                   height: 16,
                   backgroundColor: "#ef4444",
                   borderRadius: 4,
-                }}></span>{" "}
+                }}
+              ></span>{" "}
               Đã có người đặt
+            </Typography>
+            <Typography
+              variant="body2"
+              sx={{ display: "flex", alignItems: "center", gap: 1 }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 16,
+                  height: 16,
+                  backgroundColor: "#3b3b3b",
+                  borderRadius: 4,
+                }}
+              ></span>{" "}
+              Khung giờ cấm
             </Typography>
           </Box>
         </Box>
@@ -613,7 +769,8 @@ export default function BranchDetail() {
                     border: "1px solid #2a2a2a",
                     borderRadius: 4,
                     overflow: "hidden",
-                  }}>
+                  }}
+                >
                   <Grid container>
                     <Grid
                       xs={12}
@@ -624,10 +781,12 @@ export default function BranchDetail() {
                         borderRight: { md: "1px solid #2a2a2a" },
                         display: "flex",
                         flexDirection: "column",
-                      }}>
+                      }}
+                    >
                       <Typography
                         variant="h5"
-                        sx={{ fontWeight: 700, mb: 1, color: "#FFD600" }}>
+                        sx={{ fontWeight: 700, mb: 1, color: "#FFD600" }}
+                      >
                         {court.name}
                       </Typography>
                       <Chip
@@ -654,7 +813,8 @@ export default function BranchDetail() {
                           gap: 1,
                           mt: "auto",
                           mb: 2,
-                        }}>
+                        }}
+                      >
                         <SportsTennis sx={{ color: "#9a9a9a" }} />
                         <Typography variant="body1" sx={{ fontWeight: 600 }}>
                           {new Intl.NumberFormat("vi-VN", {
@@ -673,7 +833,8 @@ export default function BranchDetail() {
                           color: "#000",
                           "&:hover": { bgcolor: "#FFC000" },
                         }}
-                        onClick={() => handleOpenBooking(court)}>
+                        onClick={() => handleOpenBooking(court)}
+                      >
                         ĐẶT SÂN NÀY
                       </Button>
                     </Grid>
@@ -688,88 +849,96 @@ export default function BranchDetail() {
                           gridTemplateColumns:
                             "repeat(auto-fill, minmax(60px, 1fr))",
                           gap: 1,
-                        }}>
+                        }}
+                      >
                         {getCourtTimeSlots(court).map((slot) => {
                           const isBooked = isSlotBooked(court, slot);
                           const isPast = isSlotPast(slot);
                           const isSelected = isSlotSelected(court, slot);
+                          const isBlocked = isSlotBlocked(slot);
                           return (
                             <Chip
                               key={slot}
                               label={slot}
-                              clickable={!isBooked && !isPast}
+                              clickable={!isBooked && !isPast && !isBlocked}
                               onClick={() =>
                                 !isBooked &&
                                 !isPast &&
+                                !isBlocked &&
                                 handleSlotClick(court, slot)
                               }
                               sx={{
                                 bgcolor: isBooked
                                   ? "#ef4444"
-                                  : isPast
-                                    ? "#2f2f2f"
-                                    : isSelected
-                                      ? "#FFD600"
-                                      : "#1e1e1e",
+                                  : isBlocked
+                                    ? "#3b3b3b"
+                                    : isPast
+                                      ? "#2f2f2f"
+                                      : isSelected
+                                        ? "#FFD600"
+                                        : "#1e1e1e",
                                 color: isBooked
                                   ? "#fff"
-                                  : isSelected
-                                    ? "#000"
-                                    : "#fff",
+                                  : isBlocked
+                                    ? "#e5e5e5"
+                                    : isSelected
+                                      ? "#000"
+                                      : "#fff",
                                 fontWeight: isSelected ? 700 : 500,
                                 border:
-                                  isSelected || isBooked || isPast
+                                  isSelected || isBooked || isPast || isBlocked
                                     ? "none"
                                     : "1px solid #333",
                                 "&:hover": {
                                   bgcolor: isBooked
                                     ? "#ef4444"
-                                    : isPast
-                                      ? "#2f2f2f"
-                                      : isSelected
-                                        ? "#e6c200"
-                                        : "#333",
+                                    : isBlocked
+                                      ? "#3b3b3b"
+                                      : isPast
+                                        ? "#2f2f2f"
+                                        : isSelected
+                                          ? "#e6c200"
+                                          : "#333",
                                 },
                                 transition: "all 0.2s",
                                 borderRadius: 1,
                                 cursor:
-                                  isBooked || isPast
+                                  isBooked || isPast || isBlocked
                                     ? "not-allowed"
                                     : "pointer",
-                                opacity: isBooked || isPast ? 0.8 : 1,
+                                opacity:
+                                  isBooked || isPast || isBlocked ? 0.8 : 1,
                               }}
                             />
                           );
                         })}
                       </Box>
-                      {selectedCourt?.id === court.id &&
-                        selectedSlots.length > 0 && (
-                          <Box
-                            sx={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 1,
-                              mt: 2,
-                              bgcolor: "rgba(255,214,0,0.1)",
-                              p: 1.5,
-                              borderRadius: 2,
-                              border: "1px solid rgba(255,214,0,0.2)",
-                            }}>
-                            {groupSlotsIntoSegments(court, selectedSlots).map(
-                              (seg, i) => (
-                                <Typography
-                                  key={i}
-                                  variant="body2"
-                                  color="#FFD600">
-                                  Đã chọn:{" "}
-                                  <strong>
-                                    {seg.start_time} - {seg.end_time}
-                                  </strong>
-                                </Typography>
-                              ),
-                            )}
-                          </Box>
-                        )}
+                      {(selectedSlotsByCourt[court.id] || []).length > 0 && (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 1,
+                            mt: 2,
+                            bgcolor: "rgba(255,214,0,0.1)",
+                            p: 1.5,
+                            borderRadius: 2,
+                            border: "1px solid rgba(255,214,0,0.2)",
+                          }}
+                        >
+                          {groupSlotsIntoSegments(
+                            court,
+                            selectedSlotsByCourt[court.id] || [],
+                          ).map((seg, i) => (
+                            <Typography key={i} variant="body2" color="#FFD600">
+                              Đã chọn:{" "}
+                              <strong>
+                                {seg.start_time} - {seg.end_time}
+                              </strong>
+                            </Typography>
+                          ))}
+                        </Box>
+                      )}
                     </Grid>
                   </Grid>
                 </Card>
@@ -793,7 +962,8 @@ export default function BranchDetail() {
                       border: "1px solid #2a2a2a",
                       borderRadius: 4,
                       height: "100%",
-                    }}>
+                    }}
+                  >
                     <CardContent>
                       <Box
                         sx={{
@@ -801,7 +971,8 @@ export default function BranchDetail() {
                           alignItems: "center",
                           gap: 2,
                           mb: 2,
-                        }}>
+                        }}
+                      >
                         <Box
                           sx={{
                             width: 40,
@@ -814,7 +985,8 @@ export default function BranchDetail() {
                             justifyContent: "center",
                             fontWeight: "bold",
                             fontSize: "1.2rem",
-                          }}>
+                          }}
+                        >
                           {review.user?.name
                             ? review.user.name.charAt(0).toUpperCase()
                             : "U"}
@@ -822,12 +994,14 @@ export default function BranchDetail() {
                         <Box>
                           <Typography
                             variant="subtitle1"
-                            sx={{ fontWeight: 600 }}>
+                            sx={{ fontWeight: 600 }}
+                          >
                             {review.user?.name || "Người dùng ẩn danh"}
                           </Typography>
                           <Typography
                             variant="caption"
-                            sx={{ color: "#9a9a9a" }}>
+                            sx={{ color: "#9a9a9a" }}
+                          >
                             {new Date(review.created_at).toLocaleDateString(
                               "vi-VN",
                             )}
@@ -841,7 +1015,8 @@ export default function BranchDetail() {
                           gap: 0.5,
                           mb: 2,
                           color: "#FFD600",
-                        }}>
+                        }}
+                      >
                         {[...Array(5)].map((_, i) => (
                           <Star
                             key={i}
@@ -858,7 +1033,8 @@ export default function BranchDetail() {
                           color: "#ccc",
                           fontStyle: "italic",
                           whiteSpace: "pre-line",
-                        }}>
+                        }}
+                      >
                         "{review.comment || "Không có nhận xét"}"
                       </Typography>
                     </CardContent>
@@ -875,41 +1051,150 @@ export default function BranchDetail() {
         open={openBooking}
         onClose={() => setOpenBooking(false)}
         maxWidth="sm"
-        fullWidth>
+        fullWidth
+      >
         <DialogTitle
-          sx={{ fontWeight: 700, borderBottom: "1px solid #2a2a2a", pb: 2 }}>
+          sx={{ fontWeight: 700, borderBottom: "1px solid #2a2a2a", pb: 2 }}
+        >
           Xác nhận đặt sân
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
-          {selectedCourt && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle1" fontWeight={600} mb={1}>
-                {selectedCourt.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {branch.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" mt={1}>
-                Ngày: {bookingData.booking_date}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" mt={1}>
-                Giờ đã chọn:
-              </Typography>
-              {groupSlotsIntoSegments(selectedCourt, selectedSlots).map(
-                (seg, i) => (
-                  <Typography
-                    key={i}
-                    variant="body2"
-                    color="text.secondary"
-                    ml={2}>
-                    - {seg.start_time} tới {seg.end_time}
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle1" fontWeight={600} mb={1}>
+              {branch.name}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Ngày: {bookingData.booking_date}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" mt={1}>
+              Giờ đã chọn:
+            </Typography>
+            {courts
+              .filter((court) => (selectedSlotsByCourt[court.id] || []).length)
+              .map((court) => (
+                <Box key={court.id} sx={{ mt: 1 }}>
+                  <Typography variant="body2" fontWeight={600} color="#FFD600">
+                    {court.name}
                   </Typography>
-                ),
-              )}
-            </Box>
-          )}
+                  {groupSlotsIntoSegments(
+                    court,
+                    selectedSlotsByCourt[court.id] || [],
+                  ).map((seg, i) => (
+                    <Typography
+                      key={`${court.id}-${i}`}
+                      variant="body2"
+                      color="text.secondary"
+                      ml={2}
+                    >
+                      - {seg.start_time} tới {seg.end_time}
+                    </Typography>
+                  ))}
+                </Box>
+              ))}
+          </Box>
 
           <Grid container spacing={2}>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="booking_type"
+                label="Loại đặt sân"
+                value={bookingData.booking_type}
+                onChange={handleChange}
+              >
+                <MenuItem value="adhoc">Vãng lai</MenuItem>
+                <MenuItem value="fixed">Cố định</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="booking_purpose"
+                label="Mục đích"
+                value={bookingData.booking_purpose}
+                onChange={handleChange}
+              >
+                <MenuItem value="regular">Thông thường</MenuItem>
+                <MenuItem value="tournament">Tổ chức giải</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="booking_mode"
+                label="Hình thức"
+                value={bookingData.booking_mode}
+                onChange={handleChange}
+              >
+                <MenuItem value="single">Đặt 1 lần</MenuItem>
+                <MenuItem value="recurring">Đặt định kỳ</MenuItem>
+              </TextField>
+            </Grid>
+            {bookingData.booking_mode === "recurring" && (
+              <>
+                <Grid xs={12} sm={6}>
+                  <TextField
+                    select
+                    fullWidth
+                    name="interval_unit"
+                    label="Chu kỳ"
+                    value={bookingData.interval_unit}
+                    onChange={handleChange}
+                  >
+                    <MenuItem value="week">Theo tuần</MenuItem>
+                    <MenuItem value="month">Theo tháng</MenuItem>
+                    <MenuItem value="quarter">Theo quý</MenuItem>
+                    <MenuItem value="year">Theo năm</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid xs={12} sm={6}>
+                  <TextField
+                    type="date"
+                    fullWidth
+                    name="series_end_date"
+                    label="Ngày kết thúc"
+                    value={bookingData.series_end_date}
+                    onChange={handleChange}
+                    InputLabelProps={{ shrink: true }}
+                    inputProps={{ min: bookingData.booking_date }}
+                  />
+                </Grid>
+              </>
+            )}
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="payment_method"
+                label="Thanh toán"
+                value={bookingData.payment_method}
+                onChange={handleChange}
+              >
+                <MenuItem value="zalopay">ZaloPay</MenuItem>
+                <MenuItem value="cash">Tiền mặt</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="use_deposit"
+                label="Đặt cọc"
+                value={bookingData.use_deposit ? 1 : 0}
+                onChange={(e) =>
+                  setBookingData({
+                    ...bookingData,
+                    use_deposit: Boolean(Number(e.target.value)),
+                  })
+                }
+              >
+                <MenuItem value={0}>Không đặt cọc</MenuItem>
+                <MenuItem value={1}>Đặt cọc 30%</MenuItem>
+              </TextField>
+            </Grid>
             <Grid xs={12}>
               <Box sx={{ display: "flex", gap: 1 }}>
                 <TextField
@@ -923,7 +1208,8 @@ export default function BranchDetail() {
                   variant="outlined"
                   color="primary"
                   onClick={checkPromoCode}
-                  disabled={!bookingData.promotion_code}>
+                  disabled={!bookingData.promotion_code}
+                >
                   ÁP DỤNG
                 </Button>
               </Box>
@@ -931,7 +1217,8 @@ export default function BranchDetail() {
                 <Typography
                   color="error"
                   variant="caption"
-                  sx={{ mt: 0.5, display: "block" }}>
+                  sx={{ mt: 0.5, display: "block" }}
+                >
                   {promoResult.message}
                 </Typography>
               )}
@@ -945,9 +1232,11 @@ export default function BranchDetail() {
               bgcolor: "#111",
               borderRadius: 2,
               border: "1px solid #2a2a2a",
-            }}>
+            }}
+          >
             <Box
-              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}
+            >
               <Typography color="text.secondary">
                 Tạm tính (Bao gồm giờ vàng nếu có)
               </Typography>
@@ -961,10 +1250,31 @@ export default function BranchDetail() {
               </Typography>
             </Box>
             <Box
-              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}
+            >
               <Typography color="text.secondary">Thời gian</Typography>
               <Typography>{calculateHours()} giờ</Typography>
             </Box>
+
+            {bookingData.booking_type === "fixed" && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mb: 1,
+                  color: "#22c55e",
+                }}
+              >
+                <Typography>Giảm cố định (10%)</Typography>
+                <Typography>
+                  -
+                  {new Intl.NumberFormat("vi-VN", {
+                    style: "currency",
+                    currency: "VND",
+                  }).format(calculateFixedDiscount())}
+                </Typography>
+              </Box>
+            )}
 
             {promoResult?.valid && (
               <Box
@@ -973,7 +1283,8 @@ export default function BranchDetail() {
                   justifyContent: "space-between",
                   mb: 1,
                   color: "#22c55e",
-                }}>
+                }}
+              >
                 <Typography>Giảm giá</Typography>
                 <Typography>
                   -
@@ -982,6 +1293,20 @@ export default function BranchDetail() {
                     currency: "VND",
                   }).format(promoResult.discount || 0)}
                 </Typography>
+              </Box>
+            )}
+
+            {promoResult?.promotion?.discount_type === "percentage" && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mb: 1,
+                  color: "#22c55e",
+                }}
+              >
+                <Typography>Giảm giá (%)</Typography>
+                <Typography>{promoResult.promotion.discount_value}%</Typography>
               </Box>
             )}
 
@@ -997,6 +1322,28 @@ export default function BranchDetail() {
                 )}
               </Typography>
             </Box>
+            {bookingData.use_deposit && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mt: 1,
+                  color: "#f59e0b",
+                }}
+              >
+                <Typography>Đặt cọc (30%)</Typography>
+                <Typography>
+                  {new Intl.NumberFormat("vi-VN", {
+                    style: "currency",
+                    currency: "VND",
+                  }).format(
+                    (promoResult?.valid
+                      ? promoResult.total
+                      : calculateTotal()) * 0.3,
+                  )}
+                </Typography>
+              </Box>
+            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, borderTop: "1px solid #2a2a2a" }}>
@@ -1008,7 +1355,8 @@ export default function BranchDetail() {
             variant="contained"
             color="primary"
             disabled={bookingLoading}
-            sx={{ px: 4 }}>
+            sx={{ px: 4 }}
+          >
             XÁC NHẬN ĐẶT{" "}
             {bookingLoading && (
               <CircularProgress size={20} sx={{ ml: 1, color: "#000" }} />

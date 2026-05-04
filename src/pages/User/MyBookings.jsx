@@ -179,13 +179,17 @@ export default function MyBookings() {
   };
 
   const isPendingUnpaid = (booking) => {
-    const paymentStatus = (booking?.payment?.payment_status || "").toLowerCase();
+    const paymentStatus = (
+      booking?.payment?.payment_status || ""
+    ).toLowerCase();
     return booking?.status === "pending" && paymentStatus !== "paid";
   };
 
   const getPendingRemainingMs = (booking) => {
     if (!isPendingUnpaid(booking)) return 0;
-    const createdAt = new Date(booking.created_at || booking.updated_at || Date.now()).getTime();
+    const createdAt = new Date(
+      booking.created_at || booking.updated_at || Date.now(),
+    ).getTime();
     const expireAt = createdAt + PAYMENT_HOLD_SECONDS * 1000;
     return Math.max(0, expireAt - nowTs);
   };
@@ -202,7 +206,8 @@ export default function MyBookings() {
   useEffect(() => {
     if (loading || autoRefreshing || bookings.length === 0) return;
     const hasExpiredPending = bookings.some(
-      (booking) => isPendingUnpaid(booking) && getPendingRemainingMs(booking) === 0,
+      (booking) =>
+        isPendingUnpaid(booking) && getPendingRemainingMs(booking) === 0,
     );
     if (!hasExpiredPending) return;
 
@@ -222,6 +227,18 @@ export default function MyBookings() {
     paid: "Đã thanh toán",
     cancelled: "Đã hủy",
   };
+  const getPrimaryDate = (booking) =>
+    booking?.items?.[0]?.booking_date || booking.booking_date;
+  const getTimeLabel = (booking) => {
+    if (booking?.items && booking.items.length > 1) {
+      return `Nhiều khung giờ (${booking.items.length})`;
+    }
+    const item = booking?.items?.[0];
+    const start = item?.start_time || booking.start_time;
+    const end = item?.end_time || booking.end_time;
+    if (!start || !end) return "-";
+    return `${start.substring(0, 5)} - ${end.substring(0, 5)}`;
+  };
   const totalPages = Math.max(
     1,
     Math.ceil((paging.total || 0) / (paging.per_page || ITEMS_PER_PAGE)),
@@ -235,7 +252,8 @@ export default function MyBookings() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-        }}>
+        }}
+      >
         <CircularProgress sx={{ color: "#FFD600" }} />
       </Box>
     );
@@ -258,7 +276,8 @@ export default function MyBookings() {
               bgcolor: "#111",
               borderRadius: 4,
               border: "1px dashed #2a2a2a",
-            }}>
+            }}
+          >
             <Typography variant="h1" sx={{ fontSize: "4rem", mb: 2 }}>
               📅
             </Typography>
@@ -275,7 +294,8 @@ export default function MyBookings() {
                     border: "1px solid #2a2a2a",
                     transition: "all 0.2s",
                     "&:hover": { borderColor: "rgba(255,214,0,0.3)" },
-                  }}>
+                  }}
+                >
                   <CardContent>
                     <Box
                       sx={{
@@ -283,11 +303,13 @@ export default function MyBookings() {
                         justifyContent: "space-between",
                         alignItems: "flex-start",
                         mb: 2,
-                      }}>
+                      }}
+                    >
                       <Box>
                         <Typography
                           variant="h6"
-                          sx={{ fontWeight: 700, mb: 0.5 }}>
+                          sx={{ fontWeight: 700, mb: 0.5 }}
+                        >
                           {booking.court?.name}
                         </Typography>
                         <Typography
@@ -297,7 +319,8 @@ export default function MyBookings() {
                             alignItems: "center",
                             gap: 0.5,
                             color: "#9a9a9a",
-                          }}>
+                          }}
+                        >
                           <LocationOn
                             fontSize="small"
                             sx={{ color: "#FFD600" }}
@@ -323,7 +346,8 @@ export default function MyBookings() {
                         <Typography
                           variant="caption"
                           color="text.secondary"
-                          display="block">
+                          display="block"
+                        >
                           Ngày chơi
                         </Typography>
                         <Typography
@@ -333,15 +357,17 @@ export default function MyBookings() {
                             alignItems: "center",
                             gap: 0.5,
                             fontWeight: 600,
-                          }}>
-                          <Event fontSize="small" /> {booking.booking_date}
+                          }}
+                        >
+                          <Event fontSize="small" /> {getPrimaryDate(booking)}
                         </Typography>
                       </Grid>
                       <Grid xs={6}>
                         <Typography
                           variant="caption"
                           color="text.secondary"
-                          display="block">
+                          display="block"
+                        >
                           Thời gian
                         </Typography>
                         <Typography
@@ -351,10 +377,10 @@ export default function MyBookings() {
                             alignItems: "center",
                             gap: 0.5,
                             fontWeight: 600,
-                          }}>
+                          }}
+                        >
                           <AccessTime fontSize="small" />{" "}
-                          {booking.start_time?.substring(0, 5)} -{" "}
-                          {booking.end_time?.substring(0, 5)}
+                          {getTimeLabel(booking)}
                         </Typography>
                       </Grid>
                     </Grid>
@@ -368,13 +394,15 @@ export default function MyBookings() {
                         justifyContent: "space-between",
                         alignItems: "center",
                         mb: 2,
-                      }}>
+                      }}
+                    >
                       <Typography variant="body2" color="text.secondary">
                         Tổng thanh toán:
                       </Typography>
                       <Typography
                         variant="h6"
-                        sx={{ color: "#FFD600", fontWeight: 800 }}>
+                        sx={{ color: "#FFD600", fontWeight: 800 }}
+                      >
                         {new Intl.NumberFormat("vi-VN", {
                           style: "currency",
                           currency: "VND",
@@ -383,34 +411,39 @@ export default function MyBookings() {
                     </Box>
 
                     <Box sx={{ display: "flex", gap: 1 }}>
-                      {booking.status === "pending" && (
-                        <Box sx={{ width: "100%", display: "grid", gap: 0.75 }}>
-                          {isPendingUnpaid(booking) && (
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                textAlign: "center",
-                                color:
-                                  getPendingRemainingMs(booking) > 0
-                                    ? "#f59e0b"
-                                    : "#ef4444",
-                                fontWeight: 700,
-                              }}>
-                              {getPendingRemainingMs(booking) > 0
-                                ? `Chờ thanh toán: ${formatRemaining(getPendingRemainingMs(booking))}`
-                                : "Đã quá hạn thanh toán, đang tự hủy..."}
-                            </Typography>
-                          )}
-                          <Button
-                            variant="outlined"
-                            color="error"
-                            fullWidth
-                            onClick={() => handleCancel(booking.id)}
-                            sx={{ textTransform: "none", fontWeight: 600 }}>
-                            Hủy lịch
-                          </Button>
-                        </Box>
-                      )}
+                      {booking.status === "pending" &&
+                        booking.booking_type !== "fixed" && (
+                          <Box
+                            sx={{ width: "100%", display: "grid", gap: 0.75 }}
+                          >
+                            {isPendingUnpaid(booking) && (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  textAlign: "center",
+                                  color:
+                                    getPendingRemainingMs(booking) > 0
+                                      ? "#f59e0b"
+                                      : "#ef4444",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {getPendingRemainingMs(booking) > 0
+                                  ? `Chờ thanh toán: ${formatRemaining(getPendingRemainingMs(booking))}`
+                                  : "Đã quá hạn thanh toán, đang tự hủy..."}
+                              </Typography>
+                            )}
+                            <Button
+                              variant="outlined"
+                              color="error"
+                              fullWidth
+                              onClick={() => handleCancel(booking.id)}
+                              sx={{ textTransform: "none", fontWeight: 600 }}
+                            >
+                              Hủy lịch
+                            </Button>
+                          </Box>
+                        )}
                       {canReview(booking) && isPlayed(booking) && (
                         <Button
                           variant="outlined"
@@ -426,7 +459,8 @@ export default function MyBookings() {
                               borderColor: "#FFC000",
                               bgcolor: "rgba(255,214,0,0.05)",
                             },
-                          }}>
+                          }}
+                        >
                           Đánh giá sân
                         </Button>
                       )}
@@ -440,7 +474,8 @@ export default function MyBookings() {
                             fontSize: "0.85rem",
                             width: "100%",
                             justifyContent: "center",
-                          }}>
+                          }}
+                        >
                           <Star fontSize="small" />
                           Đã đánh giá
                         </Box>
@@ -474,9 +509,11 @@ export default function MyBookings() {
         fullWidth
         PaperProps={{
           sx: { bgcolor: "#161616", border: "1px solid #2a2a2a" },
-        }}>
+        }}
+      >
         <DialogTitle
-          sx={{ fontWeight: 700, borderBottom: "1px solid #2a2a2a" }}>
+          sx={{ fontWeight: 700, borderBottom: "1px solid #2a2a2a" }}
+        >
           Đánh giá sân {reviewTarget?.court?.name}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
@@ -507,7 +544,8 @@ export default function MyBookings() {
               variant="caption"
               color="text.secondary"
               display="block"
-              mt={0.5}>
+              mt={0.5}
+            >
               {
                 ["", "Tệ", "Không tốt", "Bình thường", "Tốt", "Xuất sắc"][
                   reviewForm.rating
@@ -533,7 +571,8 @@ export default function MyBookings() {
             color="text.secondary"
             mt={0.5}
             display="block"
-            textAlign="right">
+            textAlign="right"
+          >
             {reviewForm.comment.length}/1000
           </Typography>
         </DialogContent>
@@ -550,7 +589,8 @@ export default function MyBookings() {
               color: "#000",
               "&:hover": { bgcolor: "#FFC000" },
               px: 3,
-            }}>
+            }}
+          >
             {submitting ? (
               <CircularProgress size={20} sx={{ color: "#000" }} />
             ) : (

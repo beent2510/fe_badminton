@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  MenuItem,
 } from "@mui/material";
 import {
   LocationOn,
@@ -29,18 +30,17 @@ import { useDispatch, useSelector } from "react-redux";
 import { showNotification } from "../../store/notificationSlice";
 import courtService from "../../services/courtService";
 import bookingService from "../../services/bookingService";
+import paymentService from "../../services/paymentService";
 import promotionService from "../../services/promotionService";
+import blockedSlotService from "../../services/blockedSlotService";
 
 export default function CourtDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const user = JSON.parse(localStorage.getItem("user"));
-  const { isAuthenticated } = useSelector((state) => state.auth);
-
   const [court, setCourt] = useState(null);
   const [loading, setLoading] = useState(true);
-
   // Booking state
   const [openBooking, setOpenBooking] = useState(false);
   const [bookingData, setBookingData] = useState({
@@ -48,11 +48,19 @@ export default function CourtDetail() {
     start_time: "18:00",
     end_time: "20:00",
     promotion_code: "",
+    booking_type: "adhoc",
+    booking_purpose: "regular",
+    booking_mode: "single",
+    series_end_date: "",
+    interval_unit: "week",
+    interval_value: 1,
+    payment_method: "zalopay",
+    use_deposit: false,
   });
   const [promoResult, setPromoResult] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
-  const [selectionStep, setSelectionStep] = useState(0);
   const [selectedSlots, setSelectedSlots] = useState([]);
+  const [blockedSlots, setBlockedSlots] = useState([]);
 
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -132,16 +140,23 @@ export default function CourtDetail() {
   };
 
   const isSlotBooked = (slot) => {
-    if (!court?.bookings || court.bookings.length === 0) return false;
-    return court.bookings.some((booking) => {
+    const bookings = court?.bookings || [];
+    const hasBooking = bookings.some((booking) => {
       const start = booking.start_time.substring(0, 5);
       const end = booking.end_time.substring(0, 5);
+      return slot >= start && slot < end;
+    });
+    if (hasBooking) return true;
+    const items = court?.booking_items || court?.bookingItems || [];
+    return items.some((item) => {
+      const start = item.start_time.substring(0, 5);
+      const end = item.end_time.substring(0, 5);
       return slot >= start && slot < end;
     });
   };
 
   const handleSlotClick = (slot) => {
-    if (isSlotBooked(slot) || isSlotPast(slot)) return;
+    if (isSlotBooked(slot) || isSlotPast(slot) || isSlotBlocked(slot)) return;
 
     if (selectedSlots.includes(slot)) {
       setSelectedSlots(selectedSlots.filter((s) => s !== slot));
@@ -181,6 +196,37 @@ export default function CourtDetail() {
     }
   }, [id, bookingData.booking_date, navigate, dispatch]);
 
+  useEffect(() => {
+    const fetchBlockedSlots = async () => {
+      try {
+        const res = await blockedSlotService.getAll({
+          date: bookingData.booking_date,
+        });
+        setBlockedSlots(res.data || []);
+      } catch {
+        setBlockedSlots([]);
+      }
+    };
+    if (bookingData.booking_date) {
+      fetchBlockedSlots();
+    }
+  }, [bookingData.booking_date]);
+
+  useEffect(() => {
+    if (
+      bookingData.booking_mode === "recurring" &&
+      bookingData.payment_method !== "cash"
+    ) {
+      setBookingData((prev) => ({ ...prev, payment_method: "cash" }));
+    }
+  }, [bookingData.booking_mode, bookingData.payment_method]);
+
+  useEffect(() => {
+    if (bookingData.booking_type === "fixed" && !bookingData.use_deposit) {
+      setBookingData((prev) => ({ ...prev, use_deposit: true }));
+    }
+  }, [bookingData.booking_type, bookingData.use_deposit]);
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     if (name === "booking_date") {
@@ -208,6 +254,15 @@ export default function CourtDetail() {
     return timeToMin(slot) <= nowMinutes;
   };
 
+  const isSlotBlocked = (slot) => {
+    return blockedSlots.some((blocked) => {
+      const start = blocked.start_time?.substring(0, 5);
+      const end = blocked.end_time?.substring(0, 5);
+      if (!start || !end) return false;
+      return slot >= start && slot < end;
+    });
+  };
+
   const calculateHours = () => {
     if (selectedSlots.length === 0 || !court) return 0;
     const segments = groupSlotsIntoSegments(court, selectedSlots);
@@ -220,7 +275,7 @@ export default function CourtDetail() {
     return total > 0 ? total : 0;
   };
 
-  const calculateTotal = () => {
+  const calculateBaseTotal = () => {
     if (!court || selectedSlots.length === 0) return 0;
 
     const segments = groupSlotsIntoSegments(court, selectedSlots);
@@ -253,6 +308,15 @@ export default function CourtDetail() {
     return total;
   };
 
+  const calculateFixedDiscount = () => {
+    if (bookingData.booking_type !== "fixed") return 0;
+    return calculateBaseTotal() * 0.1;
+  };
+
+  const calculateTotal = () => {
+    return Math.max(0, calculateBaseTotal() - calculateFixedDiscount());
+  };
+
   const checkPromoCode = async () => {
     if (!bookingData.promotion_code) return;
     try {
@@ -260,9 +324,24 @@ export default function CourtDetail() {
       const data = res.data;
       if (data.valid || data.success) {
         const total = calculateTotal();
+        const totalHours = calculateHours();
+        const hasPeakOverlap = selectedSlots.some((slot) => {
+          if (!court?.court_peak_hours) return false;
+          return court.court_peak_hours.some((ph) => {
+            const phStart = ph.from_time.substring(0, 5);
+            const phEnd = ph.to_time.substring(0, 5);
+            return slot >= phStart && slot < phEnd;
+          });
+        });
         const applyRes = await promotionService.applyCode(
           bookingData.promotion_code,
           total,
+          {
+            total_hours: totalHours,
+            courts_count: 1,
+            has_peak_overlap: hasPeakOverlap,
+            booking_purpose: bookingData.booking_purpose,
+          },
         );
         const aData = applyRes.data;
         if (aData.success) {
@@ -272,6 +351,7 @@ export default function CourtDetail() {
             total: aData.total,
             discount,
             final_price: aData.total,
+            promotion: aData.promotion,
           });
           dispatch(
             showNotification({
@@ -318,6 +398,30 @@ export default function CourtDetail() {
         }),
       );
 
+    if (
+      bookingData.booking_mode === "recurring" &&
+      !bookingData.series_end_date
+    ) {
+      return dispatch(
+        showNotification({
+          message: "Vui lòng chọn ngày kết thúc cho đặt định kỳ",
+          severity: "warning",
+        }),
+      );
+    }
+
+    if (
+      bookingData.booking_mode === "recurring" &&
+      bookingData.payment_method !== "cash"
+    ) {
+      return dispatch(
+        showNotification({
+          message: "Đặt định kỳ hiện chỉ hỗ trợ thanh toán tiền mặt",
+          severity: "warning",
+        }),
+      );
+    }
+
     try {
       setBookingLoading(true);
       const segments = groupSlotsIntoSegments(court, selectedSlots);
@@ -339,6 +443,7 @@ export default function CourtDetail() {
         }
       }
 
+      const items = [];
       for (const seg of segments) {
         const startMin = timeToMin(seg.start_time);
         const endMin = timeToMin(seg.end_time);
@@ -360,36 +465,88 @@ export default function CourtDetail() {
           currentMin += 30;
         }
 
-        const payload = {
-          user_id: user.id,
+        items.push({
           court_id: court.id,
           booking_date: bookingData.booking_date,
           day_of_week: new Date(bookingData.booking_date).getDay(),
           start_time: seg.start_time,
           end_time: seg.end_time,
           total_price: segTotal,
-          promotion_code: promoResult?.valid
-            ? bookingData.promotion_code
-            : null,
-        };
-        await bookingService.bookCourt(payload);
+        });
       }
+
+      const totalAmount = promoResult?.valid
+        ? Number(promoResult.total || 0)
+        : Number(calculateTotal() || 0);
+
+      const depositPercent = 30;
+      const chargeAmount = bookingData.use_deposit
+        ? Math.round((totalAmount * depositPercent) / 100)
+        : totalAmount;
+
+      const payload = {
+        items,
+        booking_type: bookingData.booking_type,
+        booking_purpose: bookingData.booking_purpose,
+        booking_mode: bookingData.booking_mode,
+        series_start_date: bookingData.booking_date,
+        series_end_date:
+          bookingData.series_end_date || bookingData.booking_date,
+        interval_unit: bookingData.interval_unit,
+        interval_value: bookingData.interval_value,
+        promotion_code: promoResult?.valid ? bookingData.promotion_code : null,
+        payment_method: bookingData.payment_method,
+        use_deposit: bookingData.use_deposit,
+        deposit_percent: depositPercent,
+      };
+
+      if (bookingData.payment_method === "cash") {
+        await bookingService.bookGroup(payload);
+        dispatch(
+          showNotification({
+            message: "Đặt sân thành công (thanh toán tiền mặt)",
+            severity: "success",
+          }),
+        );
+        setOpenBooking(false);
+        setSelectedSlots([]);
+        setBookingData({
+          ...bookingData,
+          start_time: "",
+          end_time: "",
+          promotion_code: "",
+        });
+        setPromoResult(null);
+        return;
+      }
+
+      const paymentRes = await paymentService.createZalopayPayment({
+        amount: chargeAmount,
+      });
+
+      const paymentUrl = paymentRes.data?.payment_url;
+      const paymentId = paymentRes.data?.payment_id;
+      if (!paymentUrl) {
+        throw new Error("Không tạo được link thanh toán ZaloPay");
+      }
+
+      localStorage.setItem(
+        "pending_zalopay_booking",
+        JSON.stringify({
+          booking_group: payload,
+          created_at: Date.now(),
+          amount: totalAmount,
+          payment_id: paymentId || null,
+        }),
+      );
 
       dispatch(
         showNotification({
-          message: "Đặt sân thành công!",
-          severity: "success",
+          message: "Đang chuyển tới cổng thanh toán ZaloPay...",
+          severity: "info",
         }),
       );
-      setOpenBooking(false);
-      setSelectedSlots([]);
-      setBookingData({
-        ...bookingData,
-        start_time: "",
-        end_time: "",
-        promotion_code: "",
-      });
-      setPromoResult(null);
+      window.location.href = paymentUrl;
       // Optional: navigate to my-bookings
     } catch (err) {
       const errorMsg =
@@ -410,7 +567,8 @@ export default function CourtDetail() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-        }}>
+        }}
+      >
         <CircularProgress sx={{ color: "#FFD600" }} />
       </Box>
     );
@@ -429,7 +587,8 @@ export default function CourtDetail() {
                 overflow: "hidden",
                 mb: 3,
                 position: "relative",
-              }}>
+              }}
+            >
               <CardMedia
                 component="img"
                 height="400"
@@ -487,7 +646,8 @@ export default function CourtDetail() {
                 color: "#9a9a9a",
                 lineHeight: 1.8,
                 whiteSpace: "pre-line",
-              }}>
+              }}
+            >
               {court.description ||
                 "Sân cầu lông đạt tiêu chuẩn thi đấu quốc tế với thảm trải cao cấp, ánh sáng chống chói và không gian rộng rãi thoáng mát. Phù hợp cho cả việc tập luyện và tổ chức các giải đấu quy mô nhỏ đến vừa."}
             </Typography>
@@ -524,10 +684,12 @@ export default function CourtDetail() {
                   background: "linear-gradient(145deg, #161616, #111)",
                   border: "1px solid #2a2a2a",
                   borderRadius: 4,
-                }}>
+                }}
+              >
                 <Typography
                   variant="h5"
-                  sx={{ fontWeight: 800, mb: 1, color: "#FFD600" }}>
+                  sx={{ fontWeight: 800, mb: 1, color: "#FFD600" }}
+                >
                   {new Intl.NumberFormat("vi-VN", {
                     style: "currency",
                     currency: "VND",
@@ -537,7 +699,8 @@ export default function CourtDetail() {
                       fontSize: "1rem",
                       color: "#9a9a9a",
                       fontWeight: 500,
-                    }}>
+                    }}
+                  >
                     {" "}
                     / giờ (Giá gốc)
                   </span>
@@ -560,7 +723,8 @@ export default function CourtDetail() {
                     bgcolor: "#FFD600",
                     color: "#000",
                     "&:hover": { bgcolor: "#FFC000" },
-                  }}>
+                  }}
+                >
                   ĐẶT SÂN NGAY
                 </Button>
 
@@ -570,7 +734,8 @@ export default function CourtDetail() {
                     display: "flex",
                     flexDirection: "column",
                     gap: 1.5,
-                  }}>
+                  }}
+                >
                   <Typography
                     variant="body2"
                     sx={{
@@ -578,7 +743,8 @@ export default function CourtDetail() {
                       alignItems: "center",
                       gap: 1,
                       color: "#9a9a9a",
-                    }}>
+                    }}
+                  >
                     <CheckCircle sx={{ color: "#FFD600", fontSize: 16 }} /> Xác
                     nhận tức thì
                   </Typography>
@@ -589,7 +755,8 @@ export default function CourtDetail() {
                       alignItems: "center",
                       gap: 1,
                       color: "#9a9a9a",
-                    }}>
+                    }}
+                  >
                     <CheckCircle sx={{ color: "#FFD600", fontSize: 16 }} /> Hỗ
                     trợ huỷ linh hoạt
                   </Typography>
@@ -605,9 +772,11 @@ export default function CourtDetail() {
         open={openBooking}
         onClose={() => setOpenBooking(false)}
         maxWidth="sm"
-        fullWidth>
+        fullWidth
+      >
         <DialogTitle
-          sx={{ fontWeight: 700, borderBottom: "1px solid #2a2a2a", pb: 2 }}>
+          sx={{ fontWeight: 700, borderBottom: "1px solid #2a2a2a", pb: 2 }}
+        >
           Xác nhận đặt sân
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
@@ -629,6 +798,107 @@ export default function CourtDetail() {
           </Box>
 
           <Grid container spacing={2}>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="booking_type"
+                label="Loại đặt sân"
+                value={bookingData.booking_type}
+                onChange={handleChange}
+              >
+                <MenuItem value="adhoc">Vãng lai</MenuItem>
+                <MenuItem value="fixed">Cố định</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="booking_purpose"
+                label="Mục đích"
+                value={bookingData.booking_purpose}
+                onChange={handleChange}
+              >
+                <MenuItem value="regular">Thông thường</MenuItem>
+                <MenuItem value="tournament">Tổ chức giải</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="booking_mode"
+                label="Hình thức"
+                value={bookingData.booking_mode}
+                onChange={handleChange}
+              >
+                <MenuItem value="single">Đặt 1 lần</MenuItem>
+                <MenuItem value="recurring">Đặt định kỳ</MenuItem>
+              </TextField>
+            </Grid>
+            {bookingData.booking_mode === "recurring" && (
+              <>
+                <Grid xs={12} sm={6}>
+                  <TextField
+                    select
+                    fullWidth
+                    name="interval_unit"
+                    label="Chu kỳ"
+                    value={bookingData.interval_unit}
+                    onChange={handleChange}
+                  >
+                    <MenuItem value="week">Theo tuần</MenuItem>
+                    <MenuItem value="month">Theo tháng</MenuItem>
+                    <MenuItem value="quarter">Theo quý</MenuItem>
+                    <MenuItem value="year">Theo năm</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid xs={12} sm={6}>
+                  <TextField
+                    type="date"
+                    fullWidth
+                    name="series_end_date"
+                    label="Ngày kết thúc"
+                    value={bookingData.series_end_date}
+                    onChange={handleChange}
+                    InputLabelProps={{ shrink: true }}
+                    inputProps={{ min: bookingData.booking_date }}
+                  />
+                </Grid>
+              </>
+            )}
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="payment_method"
+                label="Thanh toán"
+                value={bookingData.payment_method}
+                onChange={handleChange}
+              >
+                <MenuItem value="zalopay">ZaloPay</MenuItem>
+                <MenuItem value="cash">Tiền mặt</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid xs={12} sm={6}>
+              <TextField
+                select
+                fullWidth
+                name="use_deposit"
+                label="Đặt cọc"
+                value={bookingData.use_deposit ? 1 : 0}
+                onChange={(e) =>
+                  setBookingData({
+                    ...bookingData,
+                    use_deposit: Boolean(Number(e.target.value)),
+                  })
+                }
+              >
+                <MenuItem value={0}>Không đặt cọc</MenuItem>
+                <MenuItem value={1}>Đặt cọc 30%</MenuItem>
+              </TextField>
+            </Grid>
             <Grid xs={12}>
               <TextField
                 fullWidth
@@ -649,14 +919,16 @@ export default function CourtDetail() {
                   alignItems: "center",
                   mb: 1.5,
                   mt: 1,
-                }}>
+                }}
+              >
                 <Typography variant="body2" color="text.secondary">
                   Bảng giờ: Nhấn vào từng ô liền kề để chọn thời gian đặt sân
                 </Typography>
                 <Box sx={{ display: "flex", gap: 1.5 }}>
                   <Typography
                     variant="caption"
-                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                  >
                     <span
                       style={{
                         display: "inline-block",
@@ -665,12 +937,14 @@ export default function CourtDetail() {
                         backgroundColor: "#1e1e1e",
                         border: "1px solid #333",
                         borderRadius: 2,
-                      }}></span>{" "}
+                      }}
+                    ></span>{" "}
                     Trống
                   </Typography>
                   <Typography
                     variant="caption"
-                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                  >
                     <span
                       style={{
                         display: "inline-block",
@@ -678,12 +952,14 @@ export default function CourtDetail() {
                         height: 12,
                         backgroundColor: "#FFD600",
                         borderRadius: 2,
-                      }}></span>{" "}
+                      }}
+                    ></span>{" "}
                     Đang chọn
                   </Typography>
                   <Typography
                     variant="caption"
-                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                  >
                     <span
                       style={{
                         display: "inline-block",
@@ -691,12 +967,14 @@ export default function CourtDetail() {
                         height: 12,
                         backgroundColor: "#ef4444",
                         borderRadius: 2,
-                      }}></span>{" "}
+                      }}
+                    ></span>{" "}
                     Đã đặt
                   </Typography>
                   <Typography
                     variant="caption"
-                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                  >
                     <span
                       style={{
                         display: "inline-block",
@@ -704,8 +982,24 @@ export default function CourtDetail() {
                         height: 12,
                         backgroundColor: "#2f2f2f",
                         borderRadius: 2,
-                      }}></span>{" "}
+                      }}
+                    ></span>{" "}
                     Đã qua giờ
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 12,
+                        height: 12,
+                        backgroundColor: "#3b3b3b",
+                        borderRadius: 2,
+                      }}
+                    ></span>{" "}
+                    Khung giờ cấm
                   </Typography>
                 </Box>
               </Box>
@@ -714,46 +1008,64 @@ export default function CourtDetail() {
                   display: "grid",
                   gridTemplateColumns: "repeat(6, 1fr)",
                   gap: 1,
-                }}>
+                }}
+              >
                 {getCourtTimeSlots(court).map((slot) => {
                   const isBooked = isSlotBooked(slot);
                   const isPast = isSlotPast(slot);
                   const isSelected = isSlotSelected(slot);
+                  const isBlocked = isSlotBlocked(slot);
                   return (
                     <Chip
                       key={slot}
                       label={slot}
-                      clickable={!isBooked && !isPast}
+                      clickable={!isBooked && !isPast && !isBlocked}
                       onClick={() =>
-                        !isBooked && !isPast && handleSlotClick(slot)
+                        !isBooked &&
+                        !isPast &&
+                        !isBlocked &&
+                        handleSlotClick(slot)
                       }
                       sx={{
                         width: "100%",
                         bgcolor: isBooked
                           ? "#ef4444"
-                          : isPast
-                            ? "#2f2f2f"
+                          : isBlocked
+                            ? "#3b3b3b"
+                            : isPast
+                              ? "#2f2f2f"
+                              : isSelected
+                                ? "#FFD600"
+                                : "#1e1e1e",
+                        color: isBooked
+                          ? "#fff"
+                          : isBlocked
+                            ? "#e5e5e5"
                             : isSelected
-                              ? "#FFD600"
-                              : "#1e1e1e",
-                        color: isBooked ? "#fff" : isSelected ? "#000" : "#fff",
+                              ? "#000"
+                              : "#fff",
                         fontWeight: isSelected ? 700 : 500,
                         border:
-                          isSelected || isBooked || isPast
+                          isSelected || isBooked || isPast || isBlocked
                             ? "none"
                             : "1px solid #333",
                         "&:hover": {
                           bgcolor: isBooked
                             ? "#ef4444"
-                            : isPast
-                              ? "#2f2f2f"
-                              : isSelected
-                                ? "#e6c200"
-                                : "#333",
+                            : isBlocked
+                              ? "#3b3b3b"
+                              : isPast
+                                ? "#2f2f2f"
+                                : isSelected
+                                  ? "#e6c200"
+                                  : "#333",
                         },
                         transition: "all 0.2s",
-                        cursor: isBooked || isPast ? "not-allowed" : "pointer",
-                        opacity: isBooked || isPast ? 0.8 : 1,
+                        cursor:
+                          isBooked || isPast || isBlocked
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity: isBooked || isPast || isBlocked ? 0.8 : 1,
                       }}
                     />
                   );
@@ -770,7 +1082,8 @@ export default function CourtDetail() {
                     p: 1.5,
                     borderRadius: 2,
                     border: "1px solid rgba(255,214,0,0.2)",
-                  }}>
+                  }}
+                >
                   {groupSlotsIntoSegments(court, selectedSlots).map(
                     (seg, i) => (
                       <Typography key={i} variant="body2" color="#FFD600">
@@ -797,7 +1110,8 @@ export default function CourtDetail() {
                   variant="outlined"
                   color="primary"
                   onClick={checkPromoCode}
-                  disabled={!bookingData.promotion_code}>
+                  disabled={!bookingData.promotion_code}
+                >
                   ÁP DỤNG
                 </Button>
               </Box>
@@ -805,7 +1119,8 @@ export default function CourtDetail() {
                 <Typography
                   color="error"
                   variant="caption"
-                  sx={{ mt: 0.5, display: "block" }}>
+                  sx={{ mt: 0.5, display: "block" }}
+                >
                   {promoResult.message}
                 </Typography>
               )}
@@ -819,9 +1134,11 @@ export default function CourtDetail() {
               bgcolor: "#111",
               borderRadius: 2,
               border: "1px solid #2a2a2a",
-            }}>
+            }}
+          >
             <Box
-              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}
+            >
               <Typography color="text.secondary">
                 Tạm tính (Bao gồm giờ vàng nếu có)
               </Typography>
@@ -835,10 +1152,31 @@ export default function CourtDetail() {
               </Typography>
             </Box>
             <Box
-              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+              sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}
+            >
               <Typography color="text.secondary">Thời gian</Typography>
               <Typography>{calculateHours()} giờ</Typography>
             </Box>
+
+            {bookingData.booking_type === "fixed" && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mb: 1,
+                  color: "#22c55e",
+                }}
+              >
+                <Typography>Giảm cố định (10%)</Typography>
+                <Typography>
+                  -
+                  {new Intl.NumberFormat("vi-VN", {
+                    style: "currency",
+                    currency: "VND",
+                  }).format(calculateFixedDiscount())}
+                </Typography>
+              </Box>
+            )}
 
             {promoResult?.valid && (
               <Box
@@ -847,7 +1185,8 @@ export default function CourtDetail() {
                   justifyContent: "space-between",
                   mb: 1,
                   color: "#22c55e",
-                }}>
+                }}
+              >
                 <Typography>Giảm giá</Typography>
                 <Typography>
                   -
@@ -856,6 +1195,20 @@ export default function CourtDetail() {
                     currency: "VND",
                   }).format(calculateTotal() - promoResult.total)}
                 </Typography>
+              </Box>
+            )}
+
+            {promoResult?.promotion?.discount_type === "percentage" && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mb: 1,
+                  color: "#22c55e",
+                }}
+              >
+                <Typography>Giảm giá (%)</Typography>
+                <Typography>{promoResult.promotion.discount_value}%</Typography>
               </Box>
             )}
 
@@ -871,6 +1224,28 @@ export default function CourtDetail() {
                 )}
               </Typography>
             </Box>
+            {bookingData.use_deposit && (
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  mt: 1,
+                  color: "#f59e0b",
+                }}
+              >
+                <Typography>Đặt cọc (30%)</Typography>
+                <Typography>
+                  {new Intl.NumberFormat("vi-VN", {
+                    style: "currency",
+                    currency: "VND",
+                  }).format(
+                    (promoResult?.valid
+                      ? promoResult.total
+                      : calculateTotal()) * 0.3,
+                  )}
+                </Typography>
+              </Box>
+            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, borderTop: "1px solid #2a2a2a" }}>
@@ -882,7 +1257,8 @@ export default function CourtDetail() {
             variant="contained"
             color="primary"
             disabled={bookingLoading}
-            sx={{ px: 4 }}>
+            sx={{ px: 4 }}
+          >
             XÁC NHẬN ĐẶT{" "}
             {bookingLoading && (
               <CircularProgress size={20} sx={{ ml: 1, color: "#000" }} />

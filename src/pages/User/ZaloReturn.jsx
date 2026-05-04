@@ -56,20 +56,28 @@ export default function ZaloReturn() {
           return;
         }
 
-        const bookings = Array.isArray(parsed?.bookings) ? parsed.bookings : [];
         const confirmedPaymentId = payment?.id || Number(paymentId);
+        const bookingGroup = parsed?.booking_group || null;
+        const bookings = Array.isArray(parsed?.bookings) ? parsed.bookings : [];
 
-        if (bookings.length === 0) {
+        if (!bookingGroup && bookings.length === 0) {
           setMessage("Không có dữ liệu đặt sân hợp lệ để tạo booking.");
           return;
         }
 
         setProcessing(true);
-        for (const payload of bookings) {
-          await bookingService.bookCourt({
-            ...payload,
+        if (bookingGroup) {
+          await bookingService.bookGroup({
+            ...bookingGroup,
             payment_id: confirmedPaymentId,
           });
+        } else {
+          for (const payload of bookings) {
+            await bookingService.bookCourt({
+              ...payload,
+              payment_id: confirmedPaymentId,
+            });
+          }
         }
 
         sessionStorage.setItem(lockKey, "1");
@@ -97,12 +105,14 @@ export default function ZaloReturn() {
           textAlign: "center",
           bgcolor: "#111",
           border: "1px solid #2a2a2a",
-        }}>
+        }}
+      >
         <Typography
           variant="h5"
           fontWeight={700}
           mb={2}
-          color={isSuccess ? "#22c55e" : "#ef4444"}>
+          color={isSuccess ? "#22c55e" : "#ef4444"}
+        >
           {isSuccess
             ? "Thanh toán ZaloPay thành công"
             : "Thanh toán ZaloPay thất bại"}
@@ -130,7 +140,8 @@ export default function ZaloReturn() {
             color: "#000",
             "&:hover": { bgcolor: "#FFC000" },
           }}
-          disabled={processing}>
+          disabled={processing}
+        >
           Đi tới booking của tôi
         </Button>
       </Paper>

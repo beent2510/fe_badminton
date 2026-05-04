@@ -23,6 +23,10 @@ import AdminPeakHours from "../pages/Admin/PeakHours";
 import AdminBookings from "../pages/Admin/Bookings";
 import AdminPromotions from "../pages/Admin/Promotions";
 import AdminManagers from "../pages/Admin/Managers";
+import AdminStaff from "../pages/Admin/Staff";
+import AdminStaffSchedules from "../pages/Admin/StaffSchedules";
+import AdminBlockedSlots from "../pages/Admin/BlockedSlots";
+import AdminReports from "../pages/Admin/Reports";
 
 const AppRoutes = () => (
   <Routes>
@@ -53,7 +57,8 @@ const AppRoutes = () => (
         <AdminRoute>
           <AdminLayout />
         </AdminRoute>
-      }>
+      }
+    >
       <Route index element={<Dashboard />} />
       <Route path="branches" element={<AdminBranches />} />
       <Route path="courts" element={<AdminCourts />} />
@@ -62,6 +67,10 @@ const AppRoutes = () => (
       <Route path="bookings" element={<AdminBookings />} />
       <Route path="promotions" element={<AdminPromotions />} />
       <Route path="managers" element={<AdminManagers />} />
+      <Route path="staff" element={<AdminStaff />} />
+      <Route path="staff-schedules" element={<AdminStaffSchedules />} />
+      <Route path="blocked-slots" element={<AdminBlockedSlots />} />
+      <Route path="reports" element={<AdminReports />} />
       <Route path="*" element={<Dashboard />} />
     </Route>
   </Routes>
