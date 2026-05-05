@@ -52,6 +52,7 @@ const AdminLayout = () => {
   };
 
   const isAdmin = user?.role === "admin";
+  const isBranchAdmin = user?.role === "branch_admin";
 
   let menuItems = [
     { text: "Dashboard", icon: <Dashboard />, path: "/admin" },
@@ -67,11 +68,15 @@ const AdminLayout = () => {
     ...(isAdmin
       ? [{ text: "Nhân viên", icon: <MenuIcon />, path: "/admin/staff" }]
       : []),
-    {
-      text: "Lịch nhân sự",
-      icon: <MenuIcon />,
-      path: "/admin/staff-schedules",
-    },
+    ...(isBranchAdmin
+      ? [
+          {
+            text: "Lịch nhân sự",
+            icon: <MenuIcon />,
+            path: "/admin/staff-schedules",
+          },
+        ]
+      : []),
     ...(isAdmin
       ? [{ text: "Chi nhánh", icon: <Storefront />, path: "/admin/branches" }]
       : []),

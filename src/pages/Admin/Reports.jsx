@@ -11,7 +11,10 @@ import {
   Paper,
   TextField,
   MenuItem,
+  Button,
 } from "@mui/material";
+import { useDispatch } from "react-redux";
+import { showNotification } from "../../store/notificationSlice";
 import adminService from "../../services/adminService";
 
 export default function Reports() {
@@ -19,28 +22,51 @@ export default function Reports() {
   const [customerRevenue, setCustomerRevenue] = useState([]);
   const [branches, setBranches] = useState([]);
   const [branchFilter, setBranchFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [rangeType, setRangeType] = useState("custom");
+  const [loading, setLoading] = useState(false);
+  const dispatch = useDispatch();
 
-  const fetchData = async () => {
-    const [branchRes, branchesRes] = await Promise.all([
-      adminService.getBranchRevenue(),
-      adminService.getBranches({ per_page: 999 }),
-    ]);
+  const fetchData = async (range = {}) => {
+    setLoading(true);
+    try {
+      const [branchRes, branchesRes] = await Promise.all([
+        adminService.getBranchRevenue(range),
+        adminService.getBranches({ per_page: 999 }),
+      ]);
 
-    const branchData = branchRes.data || [];
-    const branchList =
-      branchesRes.data?.items ||
-      branchesRes.data?.data ||
-      branchesRes.data ||
-      [];
-    setBranchRevenue(branchData);
-    setBranches(branchList);
+      const branchData = branchRes.data || [];
+      const branchList =
+        branchesRes.data?.items ||
+        branchesRes.data?.data ||
+        branchesRes.data ||
+        [];
+      setBranchRevenue(branchData);
+      setBranches(branchList);
+    } catch {
+      dispatch(
+        showNotification({
+          message: "Không thể tải thống kê",
+          severity: "error",
+        }),
+      );
+      setBranchRevenue([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const fetchCustomerRevenue = async (branchId) => {
-    const res = await adminService.getBranchCustomerRevenue({
-      branch_id: branchId || undefined,
-    });
-    setCustomerRevenue(res.data || []);
+  const fetchCustomerRevenue = async (branchId, range = {}) => {
+    try {
+      const res = await adminService.getBranchCustomerRevenue({
+        branch_id: branchId || undefined,
+        ...range,
+      });
+      setCustomerRevenue(res.data || []);
+    } catch {
+      setCustomerRevenue([]);
+    }
   };
 
   useEffect(() => {
@@ -48,14 +74,104 @@ export default function Reports() {
   }, []);
 
   useEffect(() => {
-    fetchCustomerRevenue(branchFilter);
-  }, [branchFilter]);
+    if (loading) return;
+    fetchCustomerRevenue(branchFilter, {
+      from: fromDate || undefined,
+      to: toDate || undefined,
+    });
+  }, [branchFilter, fromDate, toDate, loading]);
+
+  const toDateString = (d) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const getPresetRange = (type) => {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+
+    if (type === "week") {
+      const day = now.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      start.setDate(now.getDate() + diff);
+      end.setDate(start.getDate() + 6);
+    } else if (type === "month") {
+      start.setDate(1);
+      end.setMonth(end.getMonth() + 1);
+      end.setDate(0);
+    } else if (type === "year") {
+      start.setMonth(0, 1);
+      end.setMonth(11, 31);
+    }
+
+    return { from: toDateString(start), to: toDateString(end) };
+  };
+
+  const handleApply = () => {
+    const range =
+      rangeType === "custom"
+        ? { from: fromDate || undefined, to: toDate || undefined }
+        : getPresetRange(rangeType);
+
+    if (rangeType !== "custom") {
+      setFromDate(range.from);
+      setToDate(range.to);
+    }
+
+    fetchData(range);
+    fetchCustomerRevenue(branchFilter, range);
+  };
 
   return (
     <Box>
       <Typography variant="h5" fontWeight={700} mb={3}>
         Thống kê doanh thu
       </Typography>
+
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 3 }}>
+        <TextField
+          select
+          label="Thống kê theo"
+          value={rangeType}
+          onChange={(e) => setRangeType(e.target.value)}
+          sx={{ minWidth: 180 }}
+        >
+          <MenuItem value="custom">Ngày tự chọn</MenuItem>
+          <MenuItem value="week">Tuần này</MenuItem>
+          <MenuItem value="month">Tháng này</MenuItem>
+          <MenuItem value="year">Năm nay</MenuItem>
+        </TextField>
+        <TextField
+          type="date"
+          label="Từ ngày"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+          disabled={rangeType !== "custom"}
+        />
+        <TextField
+          type="date"
+          label="Đến ngày"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+          disabled={rangeType !== "custom"}
+        />
+        <Button
+          variant="contained"
+          onClick={handleApply}
+          sx={{
+            bgcolor: "#FFD600",
+            color: "#000",
+            "&:hover": { bgcolor: "#FFC000" },
+          }}
+        >
+          Áp dụng
+        </Button>
+      </Box>
 
       <Typography variant="h6" fontWeight={700} mb={2}>
         Tổng doanh thu từng chi nhánh
