@@ -21,7 +21,7 @@ import {
   Tooltip,
 } from "@mui/material";
 import { Add, Edit, Delete } from "@mui/icons-material";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { showNotification } from "../../store/notificationSlice";
 import adminService from "../../services/adminService";
 
@@ -36,6 +36,8 @@ export default function AdminStaff() {
     is_active: true,
   });
   const dispatch = useDispatch();
+  const { user } = useSelector((state) => state.auth);
+  const isAdmin = user?.role === "admin";
 
   const fetchData = async () => {
     try {
@@ -145,18 +147,20 @@ export default function AdminStaff() {
         <Typography variant="h5" fontWeight={700}>
           Nhân viên
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={handleOpenAdd}
-          sx={{
-            bgcolor: "#FFD600",
-            color: "#000",
-            "&:hover": { bgcolor: "#FFC000" },
-          }}
-        >
-          Thêm tài khoản
-        </Button>
+        {!isAdmin && (
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={handleOpenAdd}
+            sx={{
+              bgcolor: "#FFD600",
+              color: "#000",
+              "&:hover": { bgcolor: "#FFC000" },
+            }}
+          >
+            Thêm tài khoản
+          </Button>
+        )}
       </Box>
 
       <TableContainer

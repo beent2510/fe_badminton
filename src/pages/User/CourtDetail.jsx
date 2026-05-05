@@ -55,7 +55,6 @@ export default function CourtDetail() {
     interval_unit: "week",
     interval_value: 1,
     payment_method: "zalopay",
-    use_deposit: false,
   });
   const [promoResult, setPromoResult] = useState(null);
   const [bookingLoading, setBookingLoading] = useState(false);
@@ -220,12 +219,6 @@ export default function CourtDetail() {
       setBookingData((prev) => ({ ...prev, payment_method: "cash" }));
     }
   }, [bookingData.booking_mode, bookingData.payment_method]);
-
-  useEffect(() => {
-    if (bookingData.booking_type === "fixed" && !bookingData.use_deposit) {
-      setBookingData((prev) => ({ ...prev, use_deposit: true }));
-    }
-  }, [bookingData.booking_type, bookingData.use_deposit]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -479,11 +472,6 @@ export default function CourtDetail() {
         ? Number(promoResult.total || 0)
         : Number(calculateTotal() || 0);
 
-      const depositPercent = 30;
-      const chargeAmount = bookingData.use_deposit
-        ? Math.round((totalAmount * depositPercent) / 100)
-        : totalAmount;
-
       const payload = {
         items,
         booking_type: bookingData.booking_type,
@@ -496,8 +484,6 @@ export default function CourtDetail() {
         interval_value: bookingData.interval_value,
         promotion_code: promoResult?.valid ? bookingData.promotion_code : null,
         payment_method: bookingData.payment_method,
-        use_deposit: bookingData.use_deposit,
-        deposit_percent: depositPercent,
       };
 
       if (bookingData.payment_method === "cash") {
@@ -521,7 +507,7 @@ export default function CourtDetail() {
       }
 
       const paymentRes = await paymentService.createZalopayPayment({
-        amount: chargeAmount,
+        amount: totalAmount,
       });
 
       const paymentUrl = paymentRes.data?.payment_url;
@@ -881,24 +867,6 @@ export default function CourtDetail() {
                 <MenuItem value="cash">Tiền mặt</MenuItem>
               </TextField>
             </Grid>
-            <Grid xs={12} sm={6}>
-              <TextField
-                select
-                fullWidth
-                name="use_deposit"
-                label="Đặt cọc"
-                value={bookingData.use_deposit ? 1 : 0}
-                onChange={(e) =>
-                  setBookingData({
-                    ...bookingData,
-                    use_deposit: Boolean(Number(e.target.value)),
-                  })
-                }
-              >
-                <MenuItem value={0}>Không đặt cọc</MenuItem>
-                <MenuItem value={1}>Đặt cọc 30%</MenuItem>
-              </TextField>
-            </Grid>
             <Grid xs={12}>
               <TextField
                 fullWidth
@@ -1224,28 +1192,6 @@ export default function CourtDetail() {
                 )}
               </Typography>
             </Box>
-            {bookingData.use_deposit && (
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  mt: 1,
-                  color: "#f59e0b",
-                }}
-              >
-                <Typography>Đặt cọc (30%)</Typography>
-                <Typography>
-                  {new Intl.NumberFormat("vi-VN", {
-                    style: "currency",
-                    currency: "VND",
-                  }).format(
-                    (promoResult?.valid
-                      ? promoResult.total
-                      : calculateTotal()) * 0.3,
-                  )}
-                </Typography>
-              </Box>
-            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, borderTop: "1px solid #2a2a2a" }}>

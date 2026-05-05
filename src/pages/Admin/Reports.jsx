@@ -13,7 +13,7 @@ import {
   MenuItem,
   Button,
 } from "@mui/material";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { showNotification } from "../../store/notificationSlice";
 import adminService from "../../services/adminService";
 
@@ -27,6 +27,8 @@ export default function Reports() {
   const [rangeType, setRangeType] = useState("custom");
   const [loading, setLoading] = useState(false);
   const dispatch = useDispatch();
+  const { user } = useSelector((state) => state.auth);
+  const isAdmin = user?.role === "admin";
 
   const fetchData = async (range = {}) => {
     setLoading(true);
@@ -74,12 +76,12 @@ export default function Reports() {
   }, []);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || isAdmin) return;
     fetchCustomerRevenue(branchFilter, {
       from: fromDate || undefined,
       to: toDate || undefined,
     });
-  }, [branchFilter, fromDate, toDate, loading]);
+  }, [branchFilter, fromDate, toDate, loading, isAdmin]);
 
   const toDateString = (d) => {
     const year = d.getFullYear();
@@ -122,7 +124,9 @@ export default function Reports() {
     }
 
     fetchData(range);
-    fetchCustomerRevenue(branchFilter, range);
+    if (!isAdmin) {
+      fetchCustomerRevenue(branchFilter, range);
+    }
   };
 
   return (
@@ -222,80 +226,84 @@ export default function Reports() {
         </Table>
       </TableContainer>
 
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          mb: 2,
-        }}
-      >
-        <Typography variant="h6" fontWeight={700}>
-          Doanh thu theo khách hàng
-        </Typography>
-        <TextField
-          select
-          label="Lọc chi nhánh"
-          value={branchFilter}
-          onChange={(e) => setBranchFilter(e.target.value)}
-          sx={{ minWidth: 220 }}
-        >
-          <MenuItem value="">Tất cả</MenuItem>
-          {branches.map((b) => (
-            <MenuItem key={b.id} value={b.id}>
-              {b.name}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Box>
-
-      <TableContainer
-        component={Paper}
-        sx={{ bgcolor: "#161616", border: "1px solid #2a2a2a" }}
-      >
-        <Table>
-          <TableHead>
-            <TableRow
-              sx={{
-                "& th": {
-                  fontWeight: 700,
-                  color: "#FFD600",
-                  borderBottom: "1px solid #2a2a2a",
-                },
-              }}
+      {!isAdmin && (
+        <>
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              mb: 2,
+            }}
+          >
+            <Typography variant="h6" fontWeight={700}>
+              Doanh thu theo khách hàng
+            </Typography>
+            <TextField
+              select
+              label="Lọc chi nhánh"
+              value={branchFilter}
+              onChange={(e) => setBranchFilter(e.target.value)}
+              sx={{ minWidth: 220 }}
             >
-              <TableCell>Khách hàng</TableCell>
-              <TableCell>Chi nhánh</TableCell>
-              <TableCell>Doanh thu</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {customerRevenue.length > 0 ? (
-              customerRevenue.map((row, idx) => (
+              <MenuItem value="">Tất cả</MenuItem>
+              {branches.map((b) => (
+                <MenuItem key={b.id} value={b.id}>
+                  {b.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Box>
+
+          <TableContainer
+            component={Paper}
+            sx={{ bgcolor: "#161616", border: "1px solid #2a2a2a" }}
+          >
+            <Table>
+              <TableHead>
                 <TableRow
-                  key={`${row.user_id}-${row.branch_id}-${idx}`}
-                  sx={{ "& td": { borderBottom: "1px solid #1e1e1e" } }}
+                  sx={{
+                    "& th": {
+                      fontWeight: 700,
+                      color: "#FFD600",
+                      borderBottom: "1px solid #2a2a2a",
+                    },
+                  }}
                 >
-                  <TableCell>{row.user_name}</TableCell>
-                  <TableCell>{row.branch_name}</TableCell>
-                  <TableCell sx={{ color: "#FFD600", fontWeight: 700 }}>
-                    {new Intl.NumberFormat("vi-VN").format(
-                      row.total_revenue || 0,
-                    )}
-                    đ
-                  </TableCell>
+                  <TableCell>Khách hàng</TableCell>
+                  <TableCell>Chi nhánh</TableCell>
+                  <TableCell>Doanh thu</TableCell>
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={3} align="center">
-                  Chưa có dữ liệu
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+              </TableHead>
+              <TableBody>
+                {customerRevenue.length > 0 ? (
+                  customerRevenue.map((row, idx) => (
+                    <TableRow
+                      key={`${row.user_id}-${row.branch_id}-${idx}`}
+                      sx={{ "& td": { borderBottom: "1px solid #1e1e1e" } }}
+                    >
+                      <TableCell>{row.user_name}</TableCell>
+                      <TableCell>{row.branch_name}</TableCell>
+                      <TableCell sx={{ color: "#FFD600", fontWeight: 700 }}>
+                        {new Intl.NumberFormat("vi-VN").format(
+                          row.total_revenue || 0,
+                        )}
+                        đ
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={3} align="center">
+                      Chưa có dữ liệu
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </>
+      )}
     </Box>
   );
 }

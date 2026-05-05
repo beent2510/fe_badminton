@@ -65,7 +65,7 @@ const AdminLayout = () => {
           },
         ]
       : []),
-    ...(isAdmin
+    ...(isBranchAdmin
       ? [{ text: "Nhân viên", icon: <MenuIcon />, path: "/admin/staff" }]
       : []),
     ...(isBranchAdmin
@@ -97,7 +97,15 @@ const AdminLayout = () => {
       path: "/admin/blocked-slots",
     },
     { text: "Thống kê", icon: <TrendingUp />, path: "/admin/reports" },
-    { text: "Khuyến mãi", icon: <CardGiftcard />, path: "/admin/promotions" },
+    ...(isAdmin
+      ? [
+          {
+            text: "Khuyến mãi",
+            icon: <CardGiftcard />,
+            path: "/admin/promotions",
+          },
+        ]
+      : []),
     { text: "Đánh giá", icon: <RateReview />, path: "/admin/reviews" },
     { text: "Thanh toán", icon: <Payment />, path: "/admin/payments" },
   ];

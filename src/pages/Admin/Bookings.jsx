@@ -21,7 +21,7 @@ import {
   Tooltip,
 } from "@mui/material";
 import { Edit, Delete, Visibility } from "@mui/icons-material";
-import { useDispatch } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { showNotification } from "../../store/notificationSlice";
 import adminService from "../../services/adminService";
 
@@ -41,10 +41,17 @@ const STATUS_LABELS = {
 
 export default function AdminBookings() {
   const [bookings, setBookings] = useState([]);
+  const [courts, setCourts] = useState([]);
+  const [filterCourtId, setFilterCourtId] = useState("");
+  const [filterDate, setFilterDate] = useState("");
+  const [filterStartTime, setFilterStartTime] = useState("");
+  const [filterEndTime, setFilterEndTime] = useState("");
   const [selected, setSelected] = useState(null);
   const [openDialog, setOpenDialog] = useState(false);
   const [status, setStatus] = useState("");
   const dispatch = useDispatch();
+  const { user } = useSelector((state) => state.auth);
+  const isBranchAdmin = user?.role === "branch_admin";
 
   const getPrimaryDate = (booking) =>
     booking?.items?.[0]?.booking_date || booking.booking_date;
@@ -59,9 +66,24 @@ export default function AdminBookings() {
     return `${start.substring(0, 5)} - ${end.substring(0, 5)}`;
   };
 
-  const fetchData = async () => {
+  const getDateTimeLabels = (booking) => {
+    if (booking?.items && booking.items.length > 0) {
+      return booking.items.map((item) => {
+        const date = item.booking_date || booking.booking_date || "-";
+        const start = item.start_time?.substring(0, 5);
+        const end = item.end_time?.substring(0, 5);
+        return start && end ? `${date} ${start} - ${end}` : date;
+      });
+    }
+    const date = booking.booking_date || "-";
+    const start = booking.start_time?.substring(0, 5);
+    const end = booking.end_time?.substring(0, 5);
+    return start && end ? [`${date} ${start} - ${end}`] : [date];
+  };
+
+  const fetchData = async (filters = {}) => {
     try {
-      const res = await adminService.getBookings();
+      const res = await adminService.getBookings(filters);
       setBookings(res.data.items || res.data.data || res.data);
     } catch {
       dispatch(
@@ -70,9 +92,29 @@ export default function AdminBookings() {
     }
   };
 
+  const fetchCourts = async () => {
+    try {
+      const res = await adminService.getCourts({ per_page: 999 });
+      const data = res.data?.items || res.data?.data || res.data || [];
+      setCourts(Array.isArray(data) ? data : []);
+    } catch {
+      setCourts([]);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    fetchCourts();
   }, []);
+
+  const handleApplyFilters = () => {
+    fetchData({
+      court_id: filterCourtId || undefined,
+      booking_date: filterDate || undefined,
+      start_time: filterStartTime || undefined,
+      end_time: filterEndTime || undefined,
+    });
+  };
 
   const handleOpen = (booking) => {
     setSelected(booking);
@@ -117,6 +159,55 @@ export default function AdminBookings() {
         Quản lý Đặt Sân
       </Typography>
 
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 3 }}>
+        <TextField
+          select
+          label="Lọc sân"
+          value={filterCourtId}
+          onChange={(e) => setFilterCourtId(e.target.value)}
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="">Tất cả</MenuItem>
+          {courts.map((court) => (
+            <MenuItem key={court.id} value={court.id}>
+              {court.name}
+            </MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          type="date"
+          label="Ngày chơi"
+          value={filterDate}
+          onChange={(e) => setFilterDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          type="time"
+          label="Từ giờ"
+          value={filterStartTime}
+          onChange={(e) => setFilterStartTime(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <TextField
+          type="time"
+          label="Đến giờ"
+          value={filterEndTime}
+          onChange={(e) => setFilterEndTime(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+        />
+        <Button
+          variant="contained"
+          onClick={handleApplyFilters}
+          sx={{
+            bgcolor: "#FFD600",
+            color: "#000",
+            "&:hover": { bgcolor: "#FFC000" },
+          }}
+        >
+          Lọc
+        </Button>
+      </Box>
+
       <TableContainer
         component={Paper}
         sx={{ bgcolor: "#161616", border: "1px solid #2a2a2a" }}
@@ -137,6 +228,7 @@ export default function AdminBookings() {
               <TableCell>Sân</TableCell>
               <TableCell>Ngày chơi</TableCell>
               <TableCell>Giờ</TableCell>
+              {isBranchAdmin && <TableCell>Ngày giờ đặt</TableCell>}
               <TableCell>Tổng tiền</TableCell>
               <TableCell>Trạng thái</TableCell>
               <TableCell align="center">Hành động</TableCell>
@@ -159,6 +251,23 @@ export default function AdminBookings() {
                 </TableCell>
                 <TableCell>{getPrimaryDate(row)}</TableCell>
                 <TableCell>{getTimeLabel(row)}</TableCell>
+                {isBranchAdmin && (
+                  <TableCell>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 0.5,
+                      }}
+                    >
+                      {getDateTimeLabels(row).map((label, idx) => (
+                        <Typography key={`${row.id}-dt-${idx}`} variant="body2">
+                          {label}
+                        </Typography>
+                      ))}
+                    </Box>
+                  </TableCell>
+                )}
                 <TableCell sx={{ color: "#FFD600", fontWeight: 600 }}>
                   {new Intl.NumberFormat("vi-VN").format(
                     row.final_price || row.total_price,
