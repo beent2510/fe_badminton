@@ -56,14 +56,23 @@ export default function AdminBookings() {
   const getPrimaryDate = (booking) =>
     booking?.items?.[0]?.booking_date || booking.booking_date;
   const getTimeLabel = (booking) => {
-    if (booking?.items && booking.items.length > 1) {
-      return `Nhiều khung giờ (${booking.items.length})`;
+    const items =
+      booking?.items || booking?.booking_items || booking?.bookingItems || [];
+    if (items.length > 1) {
+      return `Nhiều khung giờ (${items.length})`;
     }
-    const item = booking?.items?.[0];
+    const item = items[0];
     const start = item?.start_time || booking.start_time;
     const end = item?.end_time || booking.end_time;
     if (!start || !end) return "-";
     return `${start.substring(0, 5)} - ${end.substring(0, 5)}`;
+  };
+
+  const getCourtCount = (booking) => {
+    const items =
+      booking?.items || booking?.booking_items || booking?.bookingItems || [];
+    if (!items.length) return 0;
+    return new Set(items.map((item) => item.court_id)).size;
   };
 
   const getDateTimeLabels = (booking) => {
@@ -245,8 +254,8 @@ export default function AdminBookings() {
                   {row.customer_name || row.user?.name || row.user_id}
                 </TableCell>
                 <TableCell sx={{ fontWeight: 600 }}>
-                  {row.items?.length
-                    ? `Nhiều sân (${row.items.length})`
+                  {getCourtCount(row) > 1
+                    ? `Nhiều sân (${getCourtCount(row)})`
                     : row.court?.name || row.court_id}
                 </TableCell>
                 <TableCell>{getPrimaryDate(row)}</TableCell>
