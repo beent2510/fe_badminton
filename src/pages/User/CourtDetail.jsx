@@ -64,6 +64,58 @@ export default function CourtDetail() {
   const today = new Date();
   const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
+  const parseDate = (value) => {
+    const [year, month, day] = value.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const formatDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const addMonths = (date, months) => {
+    const base = new Date(date);
+    const day = base.getDate();
+    base.setDate(1);
+    base.setMonth(base.getMonth() + months);
+    const lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+    base.setDate(Math.min(day, lastDay));
+    return base;
+  };
+
+  const buildRecurringDates = () => {
+    if (bookingData.booking_mode !== "recurring") return [];
+    if (!bookingData.booking_date || !bookingData.series_end_date) return [];
+
+    const start = parseDate(bookingData.booking_date);
+    const end = parseDate(bookingData.series_end_date);
+    if (start > end) return [];
+
+    const unit = bookingData.interval_unit || "month";
+    const value = Number(bookingData.interval_value || 1);
+    const dates = [];
+    let current = new Date(start);
+
+    while (current <= end) {
+      dates.push(formatDate(current));
+      if (unit === "week") {
+        current = new Date(current);
+        current.setDate(current.getDate() + 7 * value);
+      } else if (unit === "quarter") {
+        current = addMonths(current, value * 3);
+      } else if (unit === "year") {
+        current = addMonths(current, value * 12);
+      } else {
+        current = addMonths(current, value);
+      }
+    }
+
+    return dates;
+  };
+
   const getCourtTimeSlots = (courtInstance) => {
     if (courtInstance?.schedules && courtInstance.schedules.length > 0) {
       let slots = [];
@@ -398,6 +450,16 @@ export default function CourtDetail() {
       return dispatch(
         showNotification({
           message: "Vui lòng chọn ngày kết thúc cho đặt định kỳ",
+          severity: "warning",
+        }),
+      );
+    }
+
+    const recurringDates = buildRecurringDates();
+    if (bookingData.booking_mode === "recurring" && recurringDates.length === 0) {
+      return dispatch(
+        showNotification({
+          message: "Khoảng ngày định kỳ không hợp lệ",
           severity: "warning",
         }),
       );
@@ -1192,6 +1254,42 @@ export default function CourtDetail() {
                 )}
               </Typography>
             </Box>
+            {bookingData.booking_mode === "recurring" &&
+              bookingData.series_end_date && (
+                <>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mt: 1,
+                      color: "#9a9a9a",
+                    }}
+                  >
+                    <Typography>Số lần đặt</Typography>
+                    <Typography>{buildRecurringDates().length}</Typography>
+                  </Box>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      mt: 1,
+                      color: "#FFD600",
+                    }}
+                  >
+                    <Typography fontWeight={700}>Tổng tiền định kỳ</Typography>
+                    <Typography fontWeight={800}>
+                      {new Intl.NumberFormat("vi-VN", {
+                        style: "currency",
+                        currency: "VND",
+                      }).format(
+                        (promoResult?.valid
+                          ? promoResult.total
+                          : calculateTotal()) * buildRecurringDates().length,
+                      )}
+                    </Typography>
+                  </Box>
+                </>
+              )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3, borderTop: "1px solid #2a2a2a" }}>
